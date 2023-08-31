@@ -5,19 +5,21 @@ namespace GameStateStructure
 	[AttributeUsage(AttributeTargets.Property)]
 	public sealed class ArgAttribute : Attribute
 	{
-		public bool Required { get; set; }
+		public bool Option { get; set; }
 	}
 
-	public sealed class ChangeToAttribute : Attribute
+	[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+	public sealed class GoToAttribute : Attribute
 	{
 		public Type Type { get; private set; }
 
-		public ChangeToAttribute(Type type)
+		public GoToAttribute(Type type)
 		{
 			Type = type;
 		}
 	}
 
+	[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
 	public sealed class PushAttribute : Attribute
 	{
 		public Type Type { get; private set; }

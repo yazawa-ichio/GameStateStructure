@@ -1,4 +1,5 @@
 ﻿using GameStateStructure.Logger;
+using System;
 using System.Threading.Tasks;
 
 namespace GameStateStructure
@@ -21,6 +22,8 @@ namespace GameStateStructure
 
 		public GameStateManager Manager { get; internal set; }
 
+		protected internal DecoratorCollection Decorators { get; private set; } = new DecoratorCollection();
+
 		internal void Setup(GameStateManager manager, Context context)
 		{
 			Manager = manager;
@@ -31,47 +34,60 @@ namespace GameStateStructure
 		{
 			if (m_Active)
 			{
-				Update();
+				OnUpdate();
 			}
 		}
 
-		protected virtual void Update() { }
+		protected virtual void OnUpdate() { }
 
-		internal Task DoPrepare()
+		internal Task DoInitialize()
 		{
-			Log.Debug("DoPrepare {0}", GetType());
-			return Prepare();
+			Log.Debug("DoInitialize {0}", GetType());
+			return OnInitialize();
 		}
 
-		protected virtual Task Prepare() => Task.CompletedTask;
+		protected virtual Task OnInitialize() => Task.CompletedTask;
 
 		internal void DoEnter()
 		{
 			Log.Debug("DoEnter {0}", GetType());
 			m_Active = true;
-			Enter();
+			OnEnter();
 		}
 
-		protected virtual void Enter() { }
+		protected virtual void OnEnter() { }
 
 		internal async Task DoExit()
 		{
 			Log.Debug("DoExit {0}", GetType());
 			Log.Trace("PreExit {0}", GetType());
-			await PreExit();
+			await OnPreExit();
 			await Context.DisposeAsync();
 			Log.Trace("Exit {0}", GetType());
-			await Exit();
+			await OnExit();
 		}
 
-		protected virtual Task PreExit() => Task.CompletedTask;
+		protected virtual Task OnPreExit() => Task.CompletedTask;
 
-		protected virtual Task Exit() => Task.CompletedTask;
+		protected virtual Task OnExit() => Task.CompletedTask;
+
+		internal void DoPop(GameState state)
+		{
+			OnPop(state);
+		}
+
+		protected virtual void OnPop(GameState state) { }
 
 		protected void Pop()
 		{
 			Manager.Pop(this);
 		}
+
+		protected void Handle(Func<Task> task)
+		{
+			Manager.Handle(task);
+		}
+
 	}
 
 }

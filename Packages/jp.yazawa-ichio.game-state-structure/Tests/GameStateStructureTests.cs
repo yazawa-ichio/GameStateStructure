@@ -41,7 +41,7 @@ namespace GameStateStructure.Tests
 			}
 		}
 
-		[ChangeTo(typeof(Root))]
+		[GoTo(typeof(Root))]
 		partial class Root : GameState
 		{
 		}

@@ -26,10 +26,10 @@ namespace GameStateStructure.Generator
 			{
 				switch (attribute.Name.ToFullString().Trim())
 				{
-					case "GameStateStructure.ChangeTo":
-					case "ChangeTo":
-					case "GameStateStructure.ChangeToAttribute":
-					case "ChangeToAttribute":
+					case "GameStateStructure.GoTo":
+					case "GoTo":
+					case "GameStateStructure.GoToAttribute":
+					case "GoToAttribute":
 					case "GameStateStructure.Push":
 					case "Push":
 					case "GameStateStructure.PushAttribute":

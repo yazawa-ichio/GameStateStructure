@@ -1,7 +1,6 @@
 ﻿using GameStateStructure.Logger;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -15,7 +14,7 @@ namespace GameStateStructure
 
 	public interface IErrorHandler
 	{
-		void Handle(Exception e);
+		void Handle(Exception ex);
 	}
 
 	public class Config
@@ -24,11 +23,12 @@ namespace GameStateStructure
 
 		public IErrorHandler ErrorHandler { get; set; }
 
+		public DecoratorCollection Decorator { get; private set; } = new DecoratorCollection();
 	}
 
-	public class PrepareCancelException : Exception
+	public class InitializeCancelException : Exception
 	{
-		public PrepareCancelException() { }
+		public InitializeCancelException() { }
 	}
 
 	public class GameStateManager : MonoBehaviour
@@ -55,6 +55,14 @@ namespace GameStateStructure
 
 		StackData m_Data;
 		Config m_Config;
+		AsyncLock m_AsyncLock = new AsyncLock();
+
+		public IActivator Activator { get; set; }
+
+		public IErrorHandler ErrorHandler { get; set; }
+
+		public DecoratorCollection Decorators { get; private set; }
+
 
 		T CreateState<T>(ParameterHolder parameter) where T : GameState
 		{
@@ -74,7 +82,7 @@ namespace GameStateStructure
 				{
 					return activator.Create<T>();
 				}
-				return Activator.CreateInstance<T>();
+				return System.Activator.CreateInstance<T>();
 			}
 		}
 
@@ -95,35 +103,53 @@ namespace GameStateStructure
 			}
 			var state = data.State;
 			data.State = null;
+			await Decorators.DoPreExit(state);
 			await state.DoExit();
+			await Decorators.DoPostExit(state);
+			data.Parent?.State?.DoPop(state);
 		}
 
 		public Task Entry<T>() where T : GameState
 		{
-			return Entry<T>(null, null);
+			return Entry<T>(new());
 		}
 
-		public async Task Entry<T>(Config config, Action<T> onCreate) where T : GameState
+		public async Task Entry<T>(Config config) where T : GameState
 		{
+			Activator = config.Activator;
+			ErrorHandler = config.ErrorHandler;
+			Decorators = config.Decorator;
+
 			await ExitAll(m_Data, remove: true);
 			m_Config = config ?? new();
 			var data = new StackData();
 			var state = CreateState<T>(new ParameterHolder());
 			data.State = state;
-			onCreate?.Invoke(state);
 			m_Data = new StackData();
 			m_Data.State = state;
-			await state.DoPrepare();
-			state.DoEnter();
+			try
+			{
+				await Decorators.DoPreInitialize(state);
+				await state.DoInitialize();
+				await Decorators.DoPostInitialize(state);
+				await Decorators.DoPreEnter(state);
+				state.DoEnter();
+				Decorators.DoPostEnter(state);
+			}
+			catch (Exception e)
+			{
+				await Decorators.OnError(state, e);
+				throw;
+			}
 		}
 
-		async void Handle(Func<Task> task)
+		internal async void Handle(Func<Task> task)
 		{
 			try
 			{
 				await task();
 			}
-			catch (PrepareCancelException)
+			catch (InitializeCancelException)
 			{
 				return;
 			}
@@ -133,7 +159,7 @@ namespace GameStateStructure
 			}
 			catch (Exception e)
 			{
-				var handle = m_Config?.ErrorHandler;
+				var handle = ErrorHandler;
 				if (handle != null)
 				{
 					handle.Handle(e);
@@ -145,90 +171,149 @@ namespace GameStateStructure
 			}
 		}
 
-		public void Change<T>(GameState current, ParameterHolder parameter) where T : GameState, new()
+		public void GoTo<T>(GameState current, ParameterHolder parameter) where T : GameState, new()
 		{
-			var data = FindStackData(current);
-			if (data == null)
-			{
-				return;
-			}
 			Handle(async () =>
 			{
+				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
+				var data = FindStackData(current);
+				if (data == null)
+				{
+					return;
+				}
 				var state = CreateState<T>(parameter);
-				await state.DoPrepare();
-				await ExitAll(data, remove: false);
-				data.State = state;
-				await current.DoExit();
-				state.DoEnter();
+				try
+				{
+					await Decorators.DoPreInitialize(state);
+					await state.DoInitialize();
+					await Decorators.DoPostInitialize(state);
+					await ExitAll(data, remove: false);
+					data.State = state;
+					await Decorators.DoPreExit(current);
+					await current.DoExit();
+					await Decorators.DoPostExit(current);
+					await Decorators.DoPreEnter(state);
+					state.DoEnter();
+					Decorators.DoPostEnter(state);
+				}
+				catch (Exception e)
+				{
+					await Decorators.OnError(state, e);
+					throw;
+				}
 			});
 		}
 
 		public void Push<T>(GameState current, ParameterHolder parameter, CancellationToken token) where T : GameState, new()
 		{
 			Log.Debug("{0}.Push<{1}>", current, typeof(T));
-			var data = FindStackData(current);
-			if (data == null)
-			{
-				return;
-			}
 			Handle(async () =>
 			{
+				using var _ = await m_AsyncLock.Enter(token);
+				var data = FindStackData(current);
+				if (data == null)
+				{
+					return;
+				}
 				var state = CreateState<T>(parameter);
-				await state.DoPrepare();
-				var child = new StackData();
-				child.State = state;
-				child.Parent = data;
-				data.Children.Add(child);
-				state.DoEnter();
+				try
+				{
+					await Decorators.DoPreInitialize(state);
+					await state.DoInitialize();
+					await Decorators.DoPostInitialize(state);
+					var child = new StackData();
+					child.State = state;
+					child.Parent = data;
+					data.Children.Add(child);
+					await Decorators.DoPreEnter(state);
+					state.DoEnter();
+					Decorators.DoPostEnter(state);
+				}
+				catch (Exception e)
+				{
+					await Decorators.OnError(state, e);
+					throw;
+				}
 			});
 		}
 
 		public void Pop(GameState current)
 		{
-			var data = FindStackData(current);
-			if (data == null)
-			{
-				return;
-			}
 			Handle(async () =>
 			{
+				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
+				var data = FindStackData(current);
+				if (data == null)
+				{
+					return;
+				}
 				await ExitAll(data, true);
 			});
 		}
 
 		public async Task<TResult> Module<TGameState, TResult>(GameState current, ParameterHolder parameter, CancellationToken token) where TGameState : GameState, IModule<TResult>
 		{
+			using var _ = await m_AsyncLock.Enter(token);
+
 			var data = FindStackData(current);
 			if (data == null)
 			{
 				throw new InvalidOperationException("not current state");
 			}
 			var state = CreateState<TGameState>(parameter);
-			await state.DoPrepare();
-			var child = new StackData();
-			child.State = state;
-			child.Parent = data;
-			data.Children.Add(child);
-			var ret = await state.Run();
-			await ExitAll(child, true);
-			return ret;
+			try
+			{
+				await Decorators.DoPreInitialize(state);
+				await state.DoInitialize();
+				await Decorators.DoPostInitialize(state);
+				var child = new StackData();
+				child.State = state;
+				child.Parent = data;
+				data.Children.Add(child);
+				await Decorators.DoPreEnter(state);
+				state.DoEnter();
+				Decorators.DoPostEnter(state);
+				var ret = await state.Run();
+				await ExitAll(child, true);
+				return ret;
+			}
+			catch (Exception e)
+			{
+				await Decorators.OnError(state, e);
+				throw;
+			}
 		}
 
 		public async Task Module<TGameState>(GameState current, ParameterHolder parameter, CancellationToken token) where TGameState : GameState, IModule
 		{
+			using var _ = await m_AsyncLock.Enter(token);
+
 			var data = FindStackData(current);
 			if (data == null)
 			{
 				throw new InvalidOperationException("not current state");
 			}
 			var state = CreateState<TGameState>(parameter);
-			await state.DoPrepare();
-			var child = new StackData();
-			child.State = state;
-			child.Parent = data;
-			data.Children.Add(child);
-			await state.Run();
-			await ExitAll(child, true);
+			try
+			{
+				await Decorators.DoPreInitialize(state);
+				await state.DoInitialize();
+				await Decorators.DoPostInitialize(state);
+				var child = new StackData();
+				child.State = state;
+				child.Parent = data;
+				data.Children.Add(child);
+				await Decorators.DoPreEnter(state);
+				state.DoEnter();
+				Decorators.DoPostEnter(state);
+				await state.Run();
+				await ExitAll(child, true);
+			}
+			catch (Exception e)
+			{
+				await Decorators.OnError(state, e);
+				throw;
+			}
 		}
 
 		void Update()
@@ -238,30 +323,56 @@ namespace GameStateStructure
 
 		StackData FindStackData(GameState state)
 		{
-			return GetStackDatas().FirstOrDefault(x => x.State == state);
-		}
-
-		IEnumerable<StackData> GetStackDatas()
-		{
-			return GetImpl(m_Data);
-
-			IEnumerable<StackData> GetImpl(StackData data)
+			if (m_Data == null)
 			{
-				if (data == null)
+				return null;
+			}
+			return Find(state, m_Data);
+
+			StackData Find(GameState state, StackData data)
+			{
+				if (state == data.State)
 				{
-					yield break;
+					return data;
 				}
-				yield return data;
-				foreach (var child in data.Children)
+				foreach (var chind in data.Children)
 				{
-					foreach (var childData in GetImpl(child))
+					var ret = Find(state, chind);
+					if (ret != null)
 					{
-						yield return childData;
+						return ret;
 					}
 				}
+				return null;
 			}
 		}
 
+		public T GetParent<T>(GameState state) where T : GameState
+		{
+			var data = FindStackData(state)?.Parent;
+			while (data != null)
+			{
+				if (data.State is T ret)
+				{
+					return ret;
+				}
+				data = data.Parent;
+			}
+			return default;
+		}
+
+		public IEnumerable<T> GetParents<T>(GameState state) where T : GameState
+		{
+			var data = FindStackData(state)?.Parent;
+			while (data != null)
+			{
+				if (data.State is T ret)
+				{
+					yield return ret;
+				}
+				data = data.Parent;
+			}
+		}
 
 		IEnumerable<GameState> GetGameStates()
 		{
@@ -273,10 +384,6 @@ namespace GameStateStructure
 				{
 					yield break;
 				}
-				if (data.State != null)
-				{
-					yield return data.State;
-				}
 				foreach (var child in data.Children)
 				{
 					foreach (var state in GetImpl(child))
@@ -284,6 +391,18 @@ namespace GameStateStructure
 						yield return state;
 					}
 				}
+				if (data.State != null)
+				{
+					yield return data.State;
+				}
+			}
+		}
+
+		IEnumerable<DecoratorCollection> GetDecorators(StackData data)
+		{
+			if (data == null)
+			{
+				yield break;
 			}
 		}
 

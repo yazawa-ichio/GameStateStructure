@@ -6,7 +6,7 @@ namespace GameStateStructure.Generator
 {
 	class StateArg
 	{
-		public bool Required;
+		public bool Option;
 		public string Name;
 		public string ArgName;
 		public string Type;
@@ -34,7 +34,6 @@ namespace GameStateStructure.Generator
 			var ret = new StateData();
 			ret.Name = name;
 			ret.ShortName = symbol.Name;
-
 			foreach (var interfaceType in symbol.Interfaces)
 			{
 				if (interfaceType.ToDisplayString().Contains("GameStateStructure.IModule"))
@@ -61,8 +60,8 @@ namespace GameStateStructure.Generator
 				{
 					switch (kvp.Key)
 					{
-						case "Required":
-							arg.Required = (bool)kvp.Value.Value;
+						case "Option":
+							arg.Option = (bool)kvp.Value.Value;
 							break;
 					}
 				}
@@ -75,7 +74,8 @@ namespace GameStateStructure.Generator
 				}
 			}
 
-			ret.Args.Sort((a, b) => -a.Required.CompareTo(b.Required));
+			ret.Args.Sort((a, b) => a.Option.CompareTo(b.Option));
+
 
 			return ret;
 		}
