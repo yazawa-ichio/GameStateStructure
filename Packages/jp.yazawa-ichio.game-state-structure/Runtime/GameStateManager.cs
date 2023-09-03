@@ -35,13 +35,13 @@ namespace GameStateStructure
 	{
 		class StackData
 		{
-			public CancellationTokenSource CancellationTokenSource = new CancellationTokenSource();
+			public CancellationTokenSource CancellationTokenSource = new();
 
 			public StackData Parent;
 
 			public GameState State;
 
-			public List<StackData> Children = new List<StackData>();
+			public List<StackData> Children = new();
 
 			public void Update()
 			{
@@ -54,8 +54,7 @@ namespace GameStateStructure
 		}
 
 		StackData m_Data;
-		Config m_Config;
-		AsyncLock m_AsyncLock = new AsyncLock();
+		AsyncLock m_AsyncLock = new();
 
 		public IActivator Activator { get; set; }
 
@@ -77,7 +76,7 @@ namespace GameStateStructure
 
 			T New()
 			{
-				var activator = m_Config?.Activator;
+				var activator = Activator;
 				if (activator != null)
 				{
 					return activator.Create<T>();
@@ -106,6 +105,7 @@ namespace GameStateStructure
 			await Decorators.DoPreExit(state);
 			await state.DoExit();
 			await Decorators.DoPostExit(state);
+			Log.Debug("DoPop {0}", state);
 			data.Parent?.State?.DoPop(state);
 		}
 
@@ -121,7 +121,6 @@ namespace GameStateStructure
 			Decorators = config.Decorator;
 
 			await ExitAll(m_Data, remove: true);
-			m_Config = config ?? new();
 			var data = new StackData();
 			var state = CreateState<T>(new ParameterHolder());
 			data.State = state;
@@ -151,10 +150,12 @@ namespace GameStateStructure
 			}
 			catch (InitializeCancelException)
 			{
+				Log.Debug("Cancel");
 				return;
 			}
 			catch (OperationCanceledException)
 			{
+				Log.Debug("Cancel");
 				return;
 			}
 			catch (Exception e)
@@ -273,9 +274,20 @@ namespace GameStateStructure
 				await Decorators.DoPreEnter(state);
 				state.DoEnter();
 				Decorators.DoPostEnter(state);
-				var ret = await state.Run();
+				Log.Debug("{0}.Module<{1}, {2}> Run Start", current, typeof(TGameState), typeof(TResult));
+				TResult result = default;
+				try
+				{
+					result = await state.Run();
+				}
+				catch
+				{
+					await ExitAll(child, true);
+					throw;
+				}
+				Log.Debug("{0}.Module<{1}, {2}> Run Result {3}", current, typeof(TGameState), typeof(TResult), result);
 				await ExitAll(child, true);
-				return ret;
+				return result;
 			}
 			catch (Exception e)
 			{
@@ -306,7 +318,17 @@ namespace GameStateStructure
 				await Decorators.DoPreEnter(state);
 				state.DoEnter();
 				Decorators.DoPostEnter(state);
-				await state.Run();
+				Log.Debug("{0}.Module<{1}> Run Start", current, typeof(TGameState));
+				try
+				{
+					await state.Run();
+				}
+				catch
+				{
+					await ExitAll(child, true);
+					throw;
+				}
+				Log.Debug("{0}.Module<{1}> Run Result", current, typeof(TGameState));
 				await ExitAll(child, true);
 			}
 			catch (Exception e)
@@ -347,7 +369,7 @@ namespace GameStateStructure
 			}
 		}
 
-		public T GetParent<T>(GameState state) where T : GameState
+		internal T GetParent<T>(GameState state) where T : class
 		{
 			var data = FindStackData(state)?.Parent;
 			while (data != null)
@@ -361,7 +383,7 @@ namespace GameStateStructure
 			return default;
 		}
 
-		public IEnumerable<T> GetParents<T>(GameState state) where T : GameState
+		internal IEnumerable<T> GetParents<T>(GameState state) where T : class
 		{
 			var data = FindStackData(state)?.Parent;
 			while (data != null)
@@ -374,35 +396,42 @@ namespace GameStateStructure
 			}
 		}
 
-		IEnumerable<GameState> GetGameStates()
+		public IEnumerable<T> GetAllStates<T>() where T : class
+		{
+			foreach (var state in GetAllStates())
+			{
+				if (state is T ret)
+				{
+					yield return ret;
+				}
+			}
+		}
+
+		internal IEnumerable<GameState> GetAllStates()
 		{
 			return GetImpl(m_Data);
 
 			IEnumerable<GameState> GetImpl(StackData data)
 			{
-				if (data != null)
+				if (data == null)
 				{
 					yield break;
 				}
 				foreach (var child in data.Children)
 				{
+					if (child.State == null || !child.State.Active)
+					{
+						continue;
+					}
 					foreach (var state in GetImpl(child))
 					{
 						yield return state;
 					}
 				}
-				if (data.State != null)
+				if (data.State != null && data.State.Active)
 				{
 					yield return data.State;
 				}
-			}
-		}
-
-		IEnumerable<DecoratorCollection> GetDecorators(StackData data)
-		{
-			if (data == null)
-			{
-				yield break;
 			}
 		}
 

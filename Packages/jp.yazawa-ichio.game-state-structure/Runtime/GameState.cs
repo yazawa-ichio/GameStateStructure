@@ -1,5 +1,6 @@
 ﻿using GameStateStructure.Logger;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 
 namespace GameStateStructure
@@ -17,6 +18,8 @@ namespace GameStateStructure
 	public abstract class GameState
 	{
 		bool m_Active = false;
+
+		public bool Active => m_Active;
 
 		public Context Context { get; internal set; }
 
@@ -46,7 +49,10 @@ namespace GameStateStructure
 			return OnInitialize();
 		}
 
-		protected virtual Task OnInitialize() => Task.CompletedTask;
+		protected virtual Task OnInitialize()
+		{
+			return Task.CompletedTask;
+		}
 
 		internal void DoEnter()
 		{
@@ -59,6 +65,7 @@ namespace GameStateStructure
 
 		internal async Task DoExit()
 		{
+			m_Active = false;
 			Log.Debug("DoExit {0}", GetType());
 			Log.Trace("PreExit {0}", GetType());
 			await OnPreExit();
@@ -67,9 +74,15 @@ namespace GameStateStructure
 			await OnExit();
 		}
 
-		protected virtual Task OnPreExit() => Task.CompletedTask;
+		protected virtual Task OnPreExit()
+		{
+			return Task.CompletedTask;
+		}
 
-		protected virtual Task OnExit() => Task.CompletedTask;
+		protected virtual Task OnExit()
+		{
+			return Task.CompletedTask;
+		}
 
 		internal void DoPop(GameState state)
 		{
@@ -86,6 +99,21 @@ namespace GameStateStructure
 		protected void Handle(Func<Task> task)
 		{
 			Manager.Handle(task);
+		}
+
+		protected GameState GetParentState()
+		{
+			return Manager.GetParent<GameState>(this);
+		}
+
+		protected T GetParentState<T>() where T : class
+		{
+			return Manager.GetParent<T>(this);
+		}
+
+		protected IEnumerable<T> GetParentStates<T>() where T : class
+		{
+			return Manager.GetParents<T>(this);
 		}
 
 	}

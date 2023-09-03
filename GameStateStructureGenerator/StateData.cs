@@ -1,10 +1,9 @@
 ﻿using Microsoft.CodeAnalysis;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace GameStateStructure.Generator
 {
-	class StateArg
+	internal class StateArg
 	{
 		public bool Option;
 		public string Name;
@@ -13,7 +12,7 @@ namespace GameStateStructure.Generator
 		public bool IsValueType;
 	}
 
-	class StateData
+	internal class StateData
 	{
 		public string Name;
 		public string ShortName;
@@ -21,20 +20,21 @@ namespace GameStateStructure.Generator
 		public string Result;
 		public List<StateArg> Args = new();
 
-
 		public static StateData Create(AttributeData data)
 		{
-			var symbol = data.ConstructorArguments[0].Value as ITypeSymbol;
+			ITypeSymbol symbol = data.ConstructorArguments[0].Value as ITypeSymbol;
 			return Create(symbol);
 		}
 
 		public static StateData Create(ITypeSymbol symbol)
 		{
-			var name = symbol.ToDisplayString();
-			var ret = new StateData();
-			ret.Name = name;
-			ret.ShortName = symbol.Name;
-			foreach (var interfaceType in symbol.Interfaces)
+			string name = symbol.ToDisplayString();
+			StateData ret = new()
+			{
+				Name = name,
+				ShortName = symbol.Name
+			};
+			foreach (INamedTypeSymbol interfaceType in symbol.Interfaces)
 			{
 				if (interfaceType.ToDisplayString().Contains("GameStateStructure.IModule"))
 				{
@@ -47,16 +47,30 @@ namespace GameStateStructure.Generator
 				}
 			}
 
-			foreach (var member in symbol.GetMembers())
+			foreach (ISymbol member in symbol.GetMembers())
 			{
-				var attr = member.GetAttributes().FirstOrDefault(x => x.AttributeClass.ToDisplayString() == "GameStateStructure.ArgAttribute");
-				if (attr == null)
+				foreach (AttributeData attr in member.GetAttributes())
 				{
-					continue;
+					TrySetArg(ret, member, attr);
+				}
+			}
+
+			ret.Args.Sort((a, b) => a.Option.CompareTo(b.Option));
+
+			return ret;
+		}
+
+		private static void TrySetArg(StateData ret, ISymbol member, AttributeData attr)
+		{
+			if (member is IPropertySymbol property)
+			{
+				if (attr.AttributeClass.ToDisplayString() != "GameStateStructure.ArgAttribute")
+				{
+					return;
 				}
 				StateArg arg = new();
 				ret.Args.Add(arg);
-				foreach (var kvp in attr.NamedArguments)
+				foreach (KeyValuePair<string, TypedConstant> kvp in attr.NamedArguments)
 				{
 					switch (kvp.Key)
 					{
@@ -65,20 +79,14 @@ namespace GameStateStructure.Generator
 							break;
 					}
 				}
-				if (member is IPropertySymbol property)
-				{
-					arg.Name = member.Name;
-					arg.ArgName = char.ToLower(member.Name[0], System.Globalization.CultureInfo.InvariantCulture) + member.Name.Substring(1);
-					arg.Type = property.Type.ToDisplayString();
-					arg.IsValueType = property.Type.IsValueType;
-				}
+				arg.Name = member.Name;
+				arg.ArgName = char.ToLower(member.Name[0], System.Globalization.CultureInfo.InvariantCulture) + member.Name.Substring(1);
+				arg.Type = property.Type.ToDisplayString();
+				arg.IsValueType = property.Type.IsValueType;
 			}
-
-			ret.Args.Sort((a, b) => a.Option.CompareTo(b.Option));
-
-
-			return ret;
 		}
+
+
 	}
 
 }

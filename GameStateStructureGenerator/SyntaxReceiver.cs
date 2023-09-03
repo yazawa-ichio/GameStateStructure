@@ -30,10 +30,16 @@ namespace GameStateStructure.Generator
 					case "GoTo":
 					case "GameStateStructure.GoToAttribute":
 					case "GoToAttribute":
+
 					case "GameStateStructure.Push":
 					case "Push":
 					case "GameStateStructure.PushAttribute":
 					case "PushAttribute":
+
+					case "GameStateStructure.PublishEventAttribute":
+					case "PublishEvent":
+					case "GameStateStructure.PublishEvent":
+					case "PublishEventAttribute":
 						return true;
 					default:
 						return false;

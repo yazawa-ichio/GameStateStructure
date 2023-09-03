@@ -30,4 +30,25 @@ namespace GameStateStructure
 		}
 	}
 
+	[AttributeUsage(AttributeTargets.Method | AttributeTargets.Interface)]
+	public sealed class SubscribeEventAttribute : Attribute
+	{
+		public bool Broadcast { get; set; } = false;
+
+		public bool ChildOnly { get; set; } = false;
+	}
+
+	[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
+	public sealed class PublishEventAttribute : Attribute
+	{
+		public Type Type { get; private set; }
+
+		public string Prefix { get; set; }
+
+		public PublishEventAttribute(Type type)
+		{
+			Type = type;
+		}
+	}
+
 }

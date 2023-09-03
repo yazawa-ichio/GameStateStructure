@@ -3,7 +3,7 @@
 namespace GameStateStructure.Generator
 {
 
-	public class TransAttribute
+	internal class TransAttribute
 	{
 		public enum ChangeType
 		{
@@ -14,7 +14,7 @@ namespace GameStateStructure.Generator
 
 		public static bool TryGet(AttributeData data, out TransAttribute attr)
 		{
-			var type = GetChangeType(data);
+			ChangeType type = GetChangeType(data);
 			if (type == ChangeType.None)
 			{
 				attr = null;
@@ -23,16 +23,14 @@ namespace GameStateStructure.Generator
 			attr = new TransAttribute(data, type);
 			return true;
 
-			ChangeType GetChangeType(AttributeData data)
+			static ChangeType GetChangeType(AttributeData data)
 			{
-				switch (data.AttributeClass.ToDisplayString())
+				return data.AttributeClass.ToDisplayString() switch
 				{
-					case "GameStateStructure.GoToAttribute":
-						return ChangeType.GoTo;
-					case "GameStateStructure.PushAttribute":
-						return ChangeType.Push;
-				}
-				return ChangeType.None;
+					"GameStateStructure.GoToAttribute" => ChangeType.GoTo,
+					"GameStateStructure.PushAttribute" => ChangeType.Push,
+					_ => ChangeType.None,
+				};
 			}
 		}
 
@@ -49,7 +47,7 @@ namespace GameStateStructure.Generator
 			m_Data = data;
 			Type = type;
 			Symbol = data.ConstructorArguments[0].Value as ITypeSymbol;
-			foreach (var arg in data.NamedArguments)
+			foreach (System.Collections.Generic.KeyValuePair<string, TypedConstant> arg in data.NamedArguments)
 			{
 				switch (arg.Key)
 				{
