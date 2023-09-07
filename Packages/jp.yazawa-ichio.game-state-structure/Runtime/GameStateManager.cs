@@ -31,7 +31,7 @@ namespace GameStateStructure
 		public InitializeCancelException() { }
 	}
 
-	public class GameStateManager : MonoBehaviour
+	public partial class GameStateManager : MonoBehaviour
 	{
 		class StackData
 		{
@@ -62,6 +62,15 @@ namespace GameStateStructure
 
 		public DecoratorCollection Decorators { get; private set; }
 
+		private void Awake()
+		{
+			All.Add(this);
+		}
+
+		private void OnDestroy()
+		{
+			All.Remove(this);
+		}
 
 		T CreateState<T>(ParameterHolder parameter) where T : GameState
 		{
