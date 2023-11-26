@@ -116,6 +116,26 @@ namespace GameStateStructure
 			return Manager.GetParents<T>(this);
 		}
 
+		internal void DoOnApplicationPause(bool pause)
+		{
+			if (m_Active)
+			{
+				OnApplicationPause(pause);
+			}
+		}
+
+		protected virtual void OnApplicationPause(bool pause) { }
+
+		internal void DoOnApplicationFocus(bool focus)
+		{
+			if (m_Active)
+			{
+				OnApplicationFocus(focus);
+			}
+		}
+
+		protected virtual void OnApplicationFocus(bool focus) { }
+
 	}
 
 }

@@ -72,6 +72,22 @@ namespace GameStateStructure
 			All.Remove(this);
 		}
 
+		private void OnApplicationPause(bool pause)
+		{
+			foreach (var statet in GetAllStates<GameState>())
+			{
+				statet.DoOnApplicationPause(pause);
+			}
+		}
+
+		private void OnApplicationFocus(bool focus)
+		{
+			foreach (var statet in GetAllStates<GameState>())
+			{
+				statet.DoOnApplicationFocus(focus);
+			}
+		}
+
 		T CreateState<T>(ParameterHolder parameter) where T : GameState
 		{
 			var state = New();
