@@ -54,6 +54,17 @@ namespace GameStateStructure
 			return Task.CompletedTask;
 		}
 
+		internal Task DoPreEnter()
+		{
+			Log.Debug("DoPreEnter {0}", GetType());
+			return OnPreEnter();
+		}
+
+		protected virtual Task OnPreEnter()
+		{
+			return Task.CompletedTask;
+		}
+
 		internal void DoEnter()
 		{
 			Log.Debug("DoEnter {0}", GetType());

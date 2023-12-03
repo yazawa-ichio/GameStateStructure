@@ -156,6 +156,7 @@ namespace GameStateStructure
 				await Decorators.DoPreInitialize(state);
 				await state.DoInitialize();
 				await Decorators.DoPostInitialize(state);
+				await state.DoPreEnter();
 				await Decorators.DoPreEnter(state);
 				state.DoEnter();
 				Decorators.DoPostEnter(state);
@@ -218,6 +219,7 @@ namespace GameStateStructure
 					await Decorators.DoPreExit(current);
 					await current.DoExit();
 					await Decorators.DoPostExit(current);
+					await state.DoPreEnter();
 					await Decorators.DoPreEnter(state);
 					state.DoEnter();
 					Decorators.DoPostEnter(state);
@@ -251,6 +253,7 @@ namespace GameStateStructure
 					child.State = state;
 					child.Parent = data;
 					data.Children.Add(child);
+					await state.DoPreEnter();
 					await Decorators.DoPreEnter(state);
 					state.DoEnter();
 					Decorators.DoPostEnter(state);
@@ -296,6 +299,7 @@ namespace GameStateStructure
 				child.State = state;
 				child.Parent = data;
 				data.Children.Add(child);
+				await state.DoPreEnter();
 				await Decorators.DoPreEnter(state);
 				state.DoEnter();
 				Decorators.DoPostEnter(state);
@@ -340,6 +344,7 @@ namespace GameStateStructure
 				child.State = state;
 				child.Parent = data;
 				data.Children.Add(child);
+				await state.DoPreEnter();
 				await Decorators.DoPreEnter(state);
 				state.DoEnter();
 				Decorators.DoPostEnter(state);
