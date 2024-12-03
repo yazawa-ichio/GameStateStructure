@@ -35,7 +35,7 @@ namespace GameStateStructure
 	{
 		public bool Broadcast { get; set; } = false;
 
-		public bool ChildOnly { get; set; } = false;
+		public bool ChildOnly { get; set; } = true;
 	}
 
 	[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]

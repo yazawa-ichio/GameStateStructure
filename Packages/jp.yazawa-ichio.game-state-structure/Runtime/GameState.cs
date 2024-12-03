@@ -1,18 +1,19 @@
 ﻿using GameStateStructure.Logger;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace GameStateStructure
 {
-	public interface IModule
+	public interface IProcess
 	{
-		Task Run();
+		Task Run(CancellationToken token);
 	}
 
-	public interface IModule<TResult>
+	public interface IProcess<TResult>
 	{
-		Task<TResult> Run();
+		Task<TResult> Run(CancellationToken token);
 	}
 
 	public abstract class GameState
@@ -114,17 +115,17 @@ namespace GameStateStructure
 
 		protected GameState GetParentState()
 		{
-			return Manager.GetParent<GameState>(this);
+			return Manager.FindParent<GameState>(this);
 		}
 
-		protected T GetParentState<T>() where T : class
+		protected T FindParentState<T>() where T : class
 		{
-			return Manager.GetParent<T>(this);
+			return Manager.FindParent<T>(this);
 		}
 
-		protected IEnumerable<T> GetParentStates<T>() where T : class
+		protected IEnumerable<T> FindParentStates<T>() where T : class
 		{
-			return Manager.GetParents<T>(this);
+			return Manager.FindParents<T>(this);
 		}
 
 		internal void DoOnApplicationPause(bool pause)

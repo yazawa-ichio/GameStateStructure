@@ -19,7 +19,7 @@ namespace GameStateStructure.Generator
 
 		public bool Broadcast { get; private set; } = false;
 
-		public bool ChildOnly { get; private set; } = false;
+		public bool ChildOnly { get; private set; } = true;
 
 		public SubscribeEventAttribute(AttributeData data)
 		{

@@ -41,7 +41,7 @@ namespace GameStateStructure
 			{
 				yield return decorator;
 			}
-			foreach (var parent in state.Manager.GetParents<GameState>(state))
+			foreach (var parent in state.Manager.FindParents<GameState>(state))
 			{
 				foreach (var decorator in parent.Decorators.m_List)
 				{

@@ -8,7 +8,24 @@ namespace GameStateStructure.Generator
 	{
 		public IMethodSymbol Symbol;
 
-		public SubscribeEventAttribute Subscribe { get; internal set; }
+		public SubscribeEventAttribute Subscribe { get; set; }
+
+		public bool IsAsync()
+		{
+			var returnType = Symbol.ReturnType;
+			if (returnType == null)
+			{
+				return false;
+			}
+			switch (returnType.ToDisplayString())
+			{
+				case "System.Threading.Tasks.Task":
+				case "System.Threading.Tasks.ValueTask":
+				case "Cysharp.Threading.Tasks.UniTask":
+					return true;
+			}
+			return false;
+		}
 	}
 
 	internal class PublishEventData

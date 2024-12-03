@@ -17,7 +17,7 @@ namespace GameStateStructure
 
 		public GameObject Root { get; internal set; }
 
-		public CancellationToken CancellationToken => m_Cancellation.Token;
+		public CancellationToken DisposeCancellationToken => m_Cancellation.Token;
 
 		internal Context(GameState state)
 		{
