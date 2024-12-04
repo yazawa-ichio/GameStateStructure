@@ -130,6 +130,8 @@ namespace GameStateStructure
 			Activator = config.Activator;
 			ErrorHandler = config.ErrorHandler;
 			Decorators = config.Decorator;
+			m_AsyncLock?.SetError(new TransitionHangException());
+			m_AsyncLock = new AsyncLock();
 
 			await ExitAll(m_Data, remove: true);
 			var data = new StackData();
@@ -181,6 +183,7 @@ namespace GameStateStructure
 				{
 					Debug.LogException(e);
 				}
+				m_AsyncLock?.SetError(new(e));
 			}
 		}
 
@@ -331,6 +334,7 @@ namespace GameStateStructure
 				{
 					Debug.LogException(e);
 				}
+				m_AsyncLock?.SetError(new(e));
 			}
 		}
 
@@ -369,6 +373,7 @@ namespace GameStateStructure
 				{
 					Debug.LogException(e);
 				}
+				m_AsyncLock?.SetError(new(e));
 				throw;
 			}
 			return (child, state);
