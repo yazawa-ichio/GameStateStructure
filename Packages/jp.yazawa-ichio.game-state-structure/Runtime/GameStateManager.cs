@@ -37,6 +37,16 @@ namespace GameStateStructure
 					child.Update();
 				}
 			}
+
+			public void PreCancel()
+			{
+				CancellationTokenSource?.Cancel();
+				CancellationTokenSource = null;
+				foreach (var child in Children)
+				{
+					child.PreCancel();
+				}
+			}
 		}
 
 		StackData m_Data;
@@ -96,21 +106,18 @@ namespace GameStateStructure
 			}
 		}
 
-		async Task ExitAll(StackData data, bool remove)
+		async Task ExitAll(StackData data)
 		{
 			if (data == null)
 			{
 				return;
 			}
-			data.CancellationTokenSource.Cancel();
+			data.PreCancel();
 			foreach (var child in data.Children.ToArray())
 			{
-				await ExitAll(child, true);
+				await ExitAll(child);
 			}
-			if (remove)
-			{
-				data.Parent?.Children.Remove(data);
-			}
+			data.Parent?.Children.Remove(data);
 			var state = data.State;
 			data.State = null;
 			await Decorators.DoPreExit(state);
@@ -133,7 +140,7 @@ namespace GameStateStructure
 			m_AsyncLock?.SetError(new TransitionHangException());
 			m_AsyncLock = new AsyncLock();
 
-			await ExitAll(m_Data, remove: true);
+			await ExitAll(m_Data);
 			var data = new StackData();
 			var state = CreateState<T>(parameter);
 			data.State = state;
@@ -191,20 +198,33 @@ namespace GameStateStructure
 		{
 			Handle(async () =>
 			{
+				FindStackData(current)?.PreCancel();
+
 				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
 				var data = FindStackData(current);
 				if (data == null)
 				{
 					return;
 				}
+
 				var state = CreateState<T>(parameter);
 				try
 				{
 					await Decorators.DoPreInitialize(state);
 					await state.DoInitialize();
 					await Decorators.DoPostInitialize(state);
-					await ExitAll(data, remove: false);
-					data.State = state;
+					var parent = data.Parent;
+					await ExitAll(data);
+					var newData = new StackData();
+					newData.State = state;
+					if (parent == null)
+					{
+						parent.Children.Add(newData);
+					}
+					else
+					{
+						m_Data = newData;
+					}
 					await Decorators.DoPreExit(current);
 					await current.DoExit();
 					await Decorators.DoPostExit(current);
@@ -259,13 +279,14 @@ namespace GameStateStructure
 		{
 			Handle(async () =>
 			{
+				FindStackData(current)?.PreCancel();
 				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
 				var data = FindStackData(current);
 				if (data == null)
 				{
 					return;
 				}
-				await ExitAll(data, true);
+				await ExitAll(data);
 			});
 		}
 
@@ -274,6 +295,9 @@ namespace GameStateStructure
 			using var _ = await m_AsyncLock.Enter(token);
 
 			(StackData child, TGameState state) = await ProcessPush<TGameState>(current, parameter, token);
+
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, child.CancellationTokenSource.Token);
+			token = cts.Token;
 
 			Log.Debug("{0}.Process<{1}, {2}> Run Start", current, typeof(TGameState), typeof(TResult));
 			TResult result = default;
@@ -297,6 +321,9 @@ namespace GameStateStructure
 
 			(StackData child, TGameState state) = await ProcessPush<TGameState>(current, parameter, token);
 
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, child.CancellationTokenSource.Token);
+			token = cts.Token;
+
 			Log.Debug("{0}.Process<{1}> Run Start", current, typeof(TGameState));
 			try
 			{
@@ -315,7 +342,7 @@ namespace GameStateStructure
 		{
 			try
 			{
-				await ExitAll(data, true);
+				await ExitAll(data);
 			}
 			catch (Exception e)
 			{

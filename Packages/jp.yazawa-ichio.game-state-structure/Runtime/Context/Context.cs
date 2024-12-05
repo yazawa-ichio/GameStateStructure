@@ -102,7 +102,7 @@ namespace GameStateStructure
 			m_AsnycDisposable.Remove(disposable);
 		}
 
-		public async Task DisposeAsync()
+		internal async Task DisposeAsync()
 		{
 			if (m_Disposed) return;
 			m_Disposed = true;
