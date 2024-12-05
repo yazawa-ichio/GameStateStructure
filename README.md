@@ -14,12 +14,12 @@ class Root : GameState
 	protected override void OnEnter()
 	{
 		// SrouceGeneratorで自動生成されます。
-		PushBoot();
+		Push<Boot>();
 	}
 
 	public void Reboot()
 	{
-		GoToRoot();
+		GoTo<Root>();
 	}
 }
 
@@ -32,12 +32,12 @@ class Boot : GameState
 	}
 }
 
-class Dialog : GameState, IModal
+class Dialog : GameState, IProcess
 {
 	[Arg]
 	string Message { get; set; }
 
-	public async Task Run()
+	public async Task Run(CancellationToken token)
 	{
 		await OpenUI(Message);
 	}
@@ -52,9 +52,9 @@ class Dialog : GameState, IModal
 ### 引数に関して
 ステートのプロパティに`Arg`属性を設定すると遷移時の引数になります。
 
-### モーダル
-`IModal`が追加ステートをプッシュする場合とモーダルとして他の遷移をロックをかけてRun関数を実行します。  
-`IModal<TResult>`を利用すると結果を受け取れます。  
+### Process
+`IProcess`が追加ステートをプッシュする場合とモーダルとして他の遷移をロックをかけてRun関数を実行します。  
+`IProcess<TResult>`を利用すると結果を受け取れます。  
 
 ## イベントを設定する
 
@@ -63,6 +63,7 @@ class Dialog : GameState, IModal
 
 イベントを受け取りたいインターフェースもしくはステートの関数に`SubscribeEvent`を宣言します。  
 イベントを実行したい側は`PublishEvent`で呼び出したいイベントを持つ型を指定します。  
+イベントに戻り値は設定できませんが、Task等を設定するとイベントの完了を待つことが出来ます。
 
 ```cs
 [SubscribeEvent]
@@ -78,15 +79,28 @@ class Root : GameState, IReboot
 	{
 		GoToRoot();
 	}
+
+	[SubscribeEvent]
+	public async Task Proc(int b)
+	{
+		await ProcImpl(b);
+	}
 }
 
 [PublishEvent(typeof(IReboot), Prefix = "Dispatch")]
+[PublishEvent(typeof(Root))]
 class GameMain : GameState
 {
 	void GameOver()
 	{
 		// Prefix(Dispatch) + IReboot.Reboot
 		DispatchReboot();
+	}
+
+	async Task Do()
+	{
+		// Do Root.Proc(3)
+		await Proc(3);
 	}
 }
 ```
