@@ -124,7 +124,25 @@ namespace GameStateStructure
 			await state.DoExit();
 			await Decorators.DoPostExit(state);
 			Log.Debug("DoPop {0}", state);
-			data.Parent?.State?.DoPop(state);
+			data.Parent?.State?.OnPopChild(state);
+		}
+
+		async Task ForceRelease(StackData data)
+		{
+			if (data == null)
+			{
+				return;
+			}
+			data.PreCancel();
+			foreach (var child in data.Children.ToArray())
+			{
+				await ForceRelease(child);
+			}
+			var dispose = data.State?.Context?.DisposeAsync();
+			if (dispose != null)
+			{
+				await dispose;
+			}
 		}
 
 		public Task Entry<T>() where T : GameState
@@ -134,33 +152,27 @@ namespace GameStateStructure
 
 		public async Task Entry<T>(ParameterHolder parameter, Config config) where T : GameState
 		{
+			m_AsyncLock?.SetError(new TransitionHangException());
+			await ForceRelease(m_Data);
+			Decorators?.Clear();
+
 			Activator = config.Activator;
 			ErrorHandler = config.ErrorHandler;
 			Decorators = config.Decorator;
-			m_AsyncLock?.SetError(new TransitionHangException());
 			m_AsyncLock = new AsyncLock();
 
-			await ExitAll(m_Data);
 			var data = new StackData();
 			var state = CreateState<T>(parameter);
 			data.State = state;
 			m_Data = new StackData();
 			m_Data.State = state;
-			try
-			{
-				await Decorators.DoPreInitialize(state);
-				await state.DoInitialize();
-				await Decorators.DoPostInitialize(state);
-				await state.DoPreEnter();
-				await Decorators.DoPreEnter(state);
-				state.DoEnter();
-				Decorators.DoPostEnter(state);
-			}
-			catch (Exception e)
-			{
-				await Decorators.OnError(state, e);
-				throw;
-			}
+			await Decorators.DoPreInitialize(state);
+			await state.DoInitialize();
+			await Decorators.DoPostInitialize(state);
+			await state.DoPreEnter();
+			await Decorators.DoPreEnter(state);
+			state.DoEnter();
+			Decorators.DoPostEnter(state);
 		}
 
 		internal async void Handle(Func<Task> task)
@@ -168,16 +180,6 @@ namespace GameStateStructure
 			try
 			{
 				await task();
-			}
-			catch (InitializeCancelException)
-			{
-				Log.Debug("Cancel");
-				return;
-			}
-			catch (OperationCanceledException)
-			{
-				Log.Debug("Cancel");
-				return;
 			}
 			catch (Exception e)
 			{
@@ -208,36 +210,28 @@ namespace GameStateStructure
 				}
 
 				var state = CreateState<T>(parameter);
-				try
+				await Decorators.DoPreInitialize(state);
+				await state.DoInitialize();
+				await Decorators.DoPostInitialize(state);
+				var parent = data.Parent;
+				await ExitAll(data);
+				var newData = new StackData();
+				newData.State = state;
+				if (parent == null)
 				{
-					await Decorators.DoPreInitialize(state);
-					await state.DoInitialize();
-					await Decorators.DoPostInitialize(state);
-					var parent = data.Parent;
-					await ExitAll(data);
-					var newData = new StackData();
-					newData.State = state;
-					if (parent == null)
-					{
-						parent.Children.Add(newData);
-					}
-					else
-					{
-						m_Data = newData;
-					}
-					await Decorators.DoPreExit(current);
-					await current.DoExit();
-					await Decorators.DoPostExit(current);
-					await state.DoPreEnter();
-					await Decorators.DoPreEnter(state);
-					state.DoEnter();
-					Decorators.DoPostEnter(state);
+					parent.Children.Add(newData);
 				}
-				catch (Exception e)
+				else
 				{
-					await Decorators.OnError(state, e);
-					throw;
+					m_Data = newData;
 				}
+				await Decorators.DoPreExit(current);
+				await current.DoExit();
+				await Decorators.DoPostExit(current);
+				await state.DoPreEnter();
+				await Decorators.DoPreEnter(state);
+				state.DoEnter();
+				Decorators.DoPostEnter(state);
 			});
 		}
 
@@ -253,25 +247,17 @@ namespace GameStateStructure
 					return;
 				}
 				var state = CreateState<T>(parameter);
-				try
-				{
-					await Decorators.DoPreInitialize(state);
-					await state.DoInitialize();
-					await Decorators.DoPostInitialize(state);
-					var child = new StackData();
-					child.State = state;
-					child.Parent = data;
-					data.Children.Add(child);
-					await state.DoPreEnter();
-					await Decorators.DoPreEnter(state);
-					state.DoEnter();
-					Decorators.DoPostEnter(state);
-				}
-				catch (Exception e)
-				{
-					await Decorators.OnError(state, e);
-					throw;
-				}
+				await Decorators.DoPreInitialize(state);
+				await state.DoInitialize();
+				await Decorators.DoPostInitialize(state);
+				var child = new StackData();
+				child.State = state;
+				child.Parent = data;
+				data.Children.Add(child);
+				await state.DoPreEnter();
+				await Decorators.DoPreEnter(state);
+				state.DoEnter();
+				Decorators.DoPostEnter(state);
 			});
 		}
 
@@ -390,7 +376,6 @@ namespace GameStateStructure
 			}
 			catch (Exception e)
 			{
-				await Decorators.OnError(state, e);
 				var handle = ErrorHandler;
 				if (handle != null)
 				{

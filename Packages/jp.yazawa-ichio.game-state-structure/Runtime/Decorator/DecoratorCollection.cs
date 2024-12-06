@@ -1,6 +1,4 @@
-﻿using GameStateStructure.Logger;
-using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -22,17 +20,31 @@ namespace GameStateStructure
 
 		public void Unregister<T>()
 		{
-			m_List.RemoveAll(x => x is T);
+			var removes = m_List.Where(x => x is T).ToArray();
+			foreach (var remove in removes)
+			{
+				m_List.Remove(remove);
+			}
+			foreach (var remove in removes)
+			{
+				remove.Dispose();
+			}
 		}
 
 		public void Unregister(IDecorator decorator)
 		{
 			m_List.Remove(decorator);
+			decorator.Dispose();
 		}
 
 		public void Clear()
 		{
+			var list = m_List.ToArray();
 			m_List.Clear();
+			foreach (var decorator in list)
+			{
+				decorator.Dispose();
+			}
 		}
 
 		IEnumerable<IDecorator> GetDecorators(GameState state)
@@ -98,20 +110,5 @@ namespace GameStateStructure
 			}
 		}
 
-		internal async Task OnError(GameState state, Exception e)
-		{
-			foreach (var decorator in GetDecorators(state).OrderBy(x => x.Priority))
-			{
-				decorator.DoError(state, e);
-			}
-			try
-			{
-				await state.Context.DisposeAsync();
-			}
-			catch (Exception ex)
-			{
-				Log.Error("{0}", ex);
-			}
-		}
 	}
 }

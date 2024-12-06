@@ -138,7 +138,14 @@ namespace GameStateStructure
 			m_Cancellation.Dispose();
 			if (errors.Count > 0)
 			{
-				throw errors[0];
+				if (errors.Count == 1)
+				{
+					throw errors[0];
+				}
+				else
+				{
+					throw new AggregateException(errors);
+				}
 			}
 		}
 

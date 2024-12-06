@@ -96,12 +96,7 @@ namespace GameStateStructure
 			return Task.CompletedTask;
 		}
 
-		internal void DoPop(GameState state)
-		{
-			OnPop(state);
-		}
-
-		protected virtual void OnPop(GameState state) { }
+		protected internal virtual void OnPopChild(GameState state) { }
 
 		protected void Pop()
 		{
