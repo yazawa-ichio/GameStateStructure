@@ -1,49 +1,15 @@
 ﻿using Cysharp.Threading.Tasks;
 using NUnit.Framework;
 using System;
-using System.Collections;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
-using UnityEngine.TestTools;
 
 namespace GameStateStructure.Tests
 {
 	public partial class GameStateStructureTests
 	{
-		class Context : IDisposable
-		{
-			GameObject Owner { get; }
-
-			public GameStateManager Manager { get; }
-
-			public Context()
-			{
-				Owner = new GameObject("Context");
-				Manager = Owner.AddComponent<GameStateManager>();
-				Manager.ErrorHandler = new ErrorHandler();
-			}
-
-			public void Dispose()
-			{
-				GameObject.Destroy(Owner);
-			}
-
-		}
-
-		IEnumerator Async(Func<Task> task)
-		{
-			var t = task();
-			while (!t.IsCompleted)
-			{
-				yield return null;
-			}
-			if (t.IsFaulted)
-			{
-				Assert.Fail(t.Exception.ToString());
-			}
-		}
 
 		[GoTo(typeof(Root))]
 		[Push(typeof(MainA))]
@@ -113,6 +79,11 @@ namespace GameStateStructure.Tests
 			public void PopChild()
 			{
 				Pop();
+			}
+
+			protected override void OnPopChild(GameState state)
+			{
+				Debug.Log("OnPopChild " + state);
 			}
 
 			[SubscribeEvent]
@@ -200,21 +171,12 @@ namespace GameStateStructure.Tests
 			}
 		}
 
-		class ErrorHandler : IErrorHandler
+
+
+		[Test]
+		public async Task Tests()
 		{
-			public static Exception Error;
-
-			public void Handle(Exception error)
-			{
-				Error = error;
-			}
-		}
-
-
-		[UnityTest]
-		public IEnumerator Tests() => Async(async () =>
-		{
-			using (var context = new Context())
+			using (var context = new TestContext())
 			{
 				await context.Manager.Entry<Root>();
 				var root = context.Manager.FindAllStates<Root>().FirstOrDefault();
@@ -228,15 +190,15 @@ namespace GameStateStructure.Tests
 				child.Dispatch();
 				Assert.IsNull(context.Manager.FindAllStates<MainB>().FirstOrDefault());
 			}
-		});
+		}
 
-		[UnityTest]
-		public IEnumerator ErrorTests() => Async(async () =>
+		[Test]
+		public async Task ErrorTests()
 		{
-			using (var context = new Context())
+			using (var context = new TestContext())
 			{
 				await context.Manager.Entry<Root>();
-				context.Manager.ErrorHandler = new ErrorHandler();
+				context.Manager.ErrorHandler = new TestErrorHandler();
 				var root = context.Manager.FindAllStates<Root>().FirstOrDefault();
 				root.PushA();
 				var mainA = context.Manager.FindAllStates<MainA>().FirstOrDefault();
@@ -254,17 +216,17 @@ namespace GameStateStructure.Tests
 				}
 				Assert.Null(context.Manager.FindAllStates<Process>().FirstOrDefault());
 				{
-					ErrorHandler.Error = null;
+					TestErrorHandler.Error = null;
 					mainA.InitializeError(false);
 					await Task.Delay(1000);
-					Assert.IsNull(ErrorHandler.Error);
+					Assert.IsNull(TestErrorHandler.Error);
 					Assert.Null(context.Manager.FindAllStates<InitializeErrorTest>().FirstOrDefault());
 				}
 				{
-					ErrorHandler.Error = null;
+					TestErrorHandler.Error = null;
 					mainA.InitializeError(true);
 					await Task.Delay(1000);
-					Assert.IsNotNull(ErrorHandler.Error);
+					Assert.IsNotNull(TestErrorHandler.Error);
 					Assert.Null(context.Manager.FindAllStates<InitializeErrorTest>().FirstOrDefault());
 				}
 
@@ -277,13 +239,13 @@ namespace GameStateStructure.Tests
 				{
 					// ハングしたエラーが発生する
 					Assert.AreEqual("transition hang : Error", err.Message);
-					Assert.AreEqual(ErrorHandler.Error, err.InnerException);
+					Assert.AreEqual(TestErrorHandler.Error, err.InnerException);
 				}
 
 				{
 					// 再エントリーすればエラーが解消する
 					await context.Manager.Entry<Root>();
-					context.Manager.ErrorHandler = new ErrorHandler();
+					context.Manager.ErrorHandler = new TestErrorHandler();
 					root = context.Manager.FindAllStates<Root>().FirstOrDefault();
 					root.PushA();
 					mainA = context.Manager.FindAllStates<MainA>().FirstOrDefault();
@@ -291,8 +253,9 @@ namespace GameStateStructure.Tests
 					await mainA.ProcessTest(error: false);
 				}
 			}
-		});
+		}
 
 
 	}
+
 }
