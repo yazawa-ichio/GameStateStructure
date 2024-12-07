@@ -13,10 +13,19 @@ namespace GameStateStructure
 	{
 		public Type Type { get; private set; }
 
+		public string Suffix { get; private set; }
+
 		public GoToAttribute(Type type)
 		{
 			Type = type;
 		}
+
+		public GoToAttribute(Type type, string suffix)
+		{
+			Type = type;
+			Suffix = suffix;
+		}
+
 	}
 
 	[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
@@ -24,9 +33,17 @@ namespace GameStateStructure
 	{
 		public Type Type { get; private set; }
 
+		public string Suffix { get; private set; }
+
 		public PushAttribute(Type type)
 		{
 			Type = type;
+		}
+
+		public PushAttribute(Type type, string suffix)
+		{
+			Type = type;
+			Suffix = suffix;
 		}
 	}
 

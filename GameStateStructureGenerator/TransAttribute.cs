@@ -42,17 +42,26 @@ namespace GameStateStructure.Generator
 
 		public string Name { get; private set; }
 
+		public string Suffix { get; private set; }
+
 		public TransAttribute(AttributeData data, ChangeType type)
 		{
 			m_Data = data;
 			Type = type;
 			Symbol = data.ConstructorArguments[0].Value as ITypeSymbol;
+			if (data.ConstructorArguments.Length >= 2)
+			{
+				Suffix = data.ConstructorArguments[1].Value?.ToString();
+			}
 			foreach (System.Collections.Generic.KeyValuePair<string, TypedConstant> arg in data.NamedArguments)
 			{
 				switch (arg.Key)
 				{
 					case "Name":
 						Name = arg.Value.Value as string;
+						break;
+					case "Suffix":
+						Suffix = arg.Value.Value as string;
 						break;
 				}
 			}

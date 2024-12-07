@@ -15,7 +15,7 @@ namespace GameStateStructure
 		List<IAsyncDisposable> m_AsnycDisposable = new List<IAsyncDisposable>();
 		CancellationTokenSource m_Cancellation = new CancellationTokenSource();
 
-		public GameObject Root { get; internal set; }
+		public GameObject ContextObject { get; internal set; }
 
 		public CancellationToken DisposeCancellationToken => m_Cancellation.Token;
 

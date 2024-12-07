@@ -8,12 +8,12 @@ namespace GameStateStructure
 {
 	public interface IProcess
 	{
-		Task Run(CancellationToken token);
+		Task Run(CancellationToken ct);
 	}
 
 	public interface IProcess<TResult>
 	{
-		Task<TResult> Run(CancellationToken token);
+		Task<TResult> Run(CancellationToken ct);
 	}
 
 	public abstract class GameState
@@ -21,6 +21,8 @@ namespace GameStateStructure
 		bool m_Active = false;
 
 		public bool Active => m_Active;
+
+		public bool IsRoot => Manager.Root == this;
 
 		public Context Context { get; internal set; }
 

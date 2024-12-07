@@ -1,6 +1,7 @@
 ﻿using GameStateStructure.Logger;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -19,38 +20,10 @@ namespace GameStateStructure
 
 	public partial class GameStateManager : MonoBehaviour
 	{
-		class StackData
-		{
-			public CancellationTokenSource CancellationTokenSource = new();
-
-			public StackData Parent;
-
-			public GameState State;
-
-			public List<StackData> Children = new();
-
-			public void Update()
-			{
-				State?.DoUpdate();
-				foreach (var child in Children)
-				{
-					child.Update();
-				}
-			}
-
-			public void PreCancel()
-			{
-				CancellationTokenSource?.Cancel();
-				CancellationTokenSource = null;
-				foreach (var child in Children)
-				{
-					child.PreCancel();
-				}
-			}
-		}
 
 		StackData m_Data;
 		AsyncLock m_AsyncLock = new();
+		bool m_Destroyed;
 
 		public IActivator Activator { get; set; }
 
@@ -58,14 +31,20 @@ namespace GameStateStructure
 
 		public DecoratorCollection Decorators { get; private set; }
 
+		public GameState Root => m_Data?.State;
+
 		private void Awake()
 		{
+			Log.Debug("Awake {0}", this);
 			All.Add(this);
 		}
 
 		private void OnDestroy()
 		{
+			Log.Debug("OnDestroy {0}", this);
 			All.Remove(this);
+			m_Destroyed = true;
+			m_AsyncLock?.SetError(new TransitionHangException(new ObjectDisposedException("object destroyed")));
 		}
 
 		private void OnApplicationPause(bool pause)
@@ -90,7 +69,7 @@ namespace GameStateStructure
 			var context = new Context(state);
 			var obj = new GameObject(typeof(T).Name);
 			obj.transform.SetParent(transform);
-			context.Root = context.Manage(obj);
+			context.ContextObject = context.Manage(obj);
 			state.Setup(this, context);
 			parameter.Apply(state);
 			return state;
@@ -113,11 +92,13 @@ namespace GameStateStructure
 				return;
 			}
 			data.PreCancel();
-			foreach (var child in data.Children.ToArray())
+			data.Parent?.Children.Remove(data);
+			var children = data.Children.ToArray();
+			data.Children.Clear();
+			foreach (var child in children)
 			{
 				await ExitAll(child);
 			}
-			data.Parent?.Children.Remove(data);
 			var state = data.State;
 			data.State = null;
 			await Decorators.DoPreExit(state);
@@ -183,6 +164,11 @@ namespace GameStateStructure
 			}
 			catch (Exception e)
 			{
+				if (m_Destroyed)
+				{
+					Log.Warning("Object Destroyed {0}", e);
+					return;
+				}
 				var handle = ErrorHandler;
 				if (handle != null)
 				{
@@ -217,7 +203,8 @@ namespace GameStateStructure
 				await ExitAll(data);
 				var newData = new StackData();
 				newData.State = state;
-				if (parent == null)
+				newData.Parent = parent;
+				if (parent != null)
 				{
 					parent.Children.Add(newData);
 				}
@@ -242,7 +229,7 @@ namespace GameStateStructure
 			{
 				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
 				var data = FindStackData(current);
-				if (data == null)
+				if (data == null || data.CancellationTokenSource == null)
 				{
 					return;
 				}
@@ -267,6 +254,10 @@ namespace GameStateStructure
 			{
 				FindStackData(current)?.PreCancel();
 				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
+				if (current.IsRoot)
+				{
+					throw new InvalidOperationException("Root state can not be popped");
+				}
 				var data = FindStackData(current);
 				if (data == null)
 				{
@@ -356,7 +347,7 @@ namespace GameStateStructure
 			var data = FindStackData(current);
 			if (data == null)
 			{
-				throw new InvalidOperationException("not current state");
+				throw new InvalidOperationException("not current state " + current);
 			}
 			var state = CreateState<TGameState>(parameter);
 			StackData child;
@@ -458,6 +449,11 @@ namespace GameStateStructure
 					yield return ret;
 				}
 			}
+		}
+
+		public T FindState<T>() where T : class
+		{
+			return FindAllStates<T>().FirstOrDefault();
 		}
 
 		internal IEnumerable<GameState> GetAllStates()
