@@ -77,7 +77,14 @@ namespace GameStateStructure
 				{
 					if (m_Dic.TryGetValue(kvp.Key, out var data))
 					{
-						data.Property?.SetValue(obj, kvp.Value);
+						if (data.Property != null)
+						{
+							if (data.Property.SetMethod == null)
+							{
+								throw new InvalidOperationException($"Property {data.Property.Name} is readonly.");
+							}
+							data.Property.SetValue(obj, kvp.Value);
+						}
 						data.Field?.SetValue(obj, kvp.Value);
 					}
 				}

@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace GameStateStructure
 {
 
-	public interface IDecorator
+	public interface IDecorator : IDisposable
 	{
 		int Priority { get; }
 		Task DoPreInitialize(GameState state);
@@ -13,7 +13,6 @@ namespace GameStateStructure
 		void DoPostEnter(GameState state);
 		Task DoPreExit(GameState state);
 		Task DoPostExit(GameState state);
-		void DoError(GameState state, Exception e);
 	}
 
 	public abstract class Decorator<TMaker> : IDecorator where TMaker : class
@@ -134,20 +133,11 @@ namespace GameStateStructure
 			return Task.CompletedTask;
 		}
 
-		void IDecorator.DoError(GameState state, System.Exception e)
-		{
-			var maker = GetMaker(state);
-			if (maker == null)
-			{
-				return;
-			}
-			OnError(state, maker, e);
-		}
+		void IDisposable.Dispose() { }
 
-		protected virtual void OnError(GameState state, TMaker maker, System.Exception e)
+		protected virtual void Dispose()
 		{
 		}
-
 	}
 
 }

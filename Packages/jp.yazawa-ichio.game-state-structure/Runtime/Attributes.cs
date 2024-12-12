@@ -13,10 +13,19 @@ namespace GameStateStructure
 	{
 		public Type Type { get; private set; }
 
+		public string Name { get; private set; }
+
 		public GoToAttribute(Type type)
 		{
 			Type = type;
 		}
+
+		public GoToAttribute(Type type, string name)
+		{
+			Type = type;
+			Name = name;
+		}
+
 	}
 
 	[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
@@ -24,9 +33,17 @@ namespace GameStateStructure
 	{
 		public Type Type { get; private set; }
 
+		public string Name { get; private set; }
+
 		public PushAttribute(Type type)
 		{
 			Type = type;
+		}
+
+		public PushAttribute(Type type, string name)
+		{
+			Type = type;
+			Name = name;
 		}
 	}
 
@@ -35,7 +52,7 @@ namespace GameStateStructure
 	{
 		public bool Broadcast { get; set; } = false;
 
-		public bool ChildOnly { get; set; } = false;
+		public bool ChildOnly { get; set; } = true;
 	}
 
 	[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]

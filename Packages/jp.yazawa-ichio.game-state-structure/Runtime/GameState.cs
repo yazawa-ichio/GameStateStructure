@@ -1,18 +1,19 @@
 ﻿using GameStateStructure.Logger;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace GameStateStructure
 {
-	public interface IModule
+	public interface IProcess
 	{
-		Task Run();
+		Task Run(CancellationToken ct);
 	}
 
-	public interface IModule<TResult>
+	public interface IProcess<TResult>
 	{
-		Task<TResult> Run();
+		Task<TResult> Run(CancellationToken ct);
 	}
 
 	public abstract class GameState
@@ -20,6 +21,8 @@ namespace GameStateStructure
 		bool m_Active = false;
 
 		public bool Active => m_Active;
+
+		public bool IsRoot => Manager.Root == this;
 
 		public Context Context { get; internal set; }
 
@@ -95,12 +98,7 @@ namespace GameStateStructure
 			return Task.CompletedTask;
 		}
 
-		internal void DoPop(GameState state)
-		{
-			OnPop(state);
-		}
-
-		protected virtual void OnPop(GameState state) { }
+		protected internal virtual void OnPopChild(GameState state) { }
 
 		protected void Pop()
 		{
@@ -114,17 +112,17 @@ namespace GameStateStructure
 
 		protected GameState GetParentState()
 		{
-			return Manager.GetParent<GameState>(this);
+			return Manager.FindParent<GameState>(this);
 		}
 
-		protected T GetParentState<T>() where T : class
+		protected T FindParentState<T>() where T : class
 		{
-			return Manager.GetParent<T>(this);
+			return Manager.FindParent<T>(this);
 		}
 
-		protected IEnumerable<T> GetParentStates<T>() where T : class
+		protected IEnumerable<T> FindParentStates<T>() where T : class
 		{
-			return Manager.GetParents<T>(this);
+			return Manager.FindParents<T>(this);
 		}
 
 		internal void DoOnApplicationPause(bool pause)

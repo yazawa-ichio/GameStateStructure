@@ -16,7 +16,7 @@ namespace GameStateStructure.Generator
 	{
 		public string Name;
 		public string ShortName;
-		public bool Modal;
+		public bool IsProcess;
 		public string Result;
 		public List<StateArg> Args = new();
 
@@ -36,9 +36,9 @@ namespace GameStateStructure.Generator
 			};
 			foreach (INamedTypeSymbol interfaceType in symbol.Interfaces)
 			{
-				if (interfaceType.ToDisplayString().Contains("GameStateStructure.IModule"))
+				if (interfaceType.ToDisplayString().Contains("GameStateStructure.IProcess"))
 				{
-					ret.Modal = true;
+					ret.IsProcess = true;
 					if (interfaceType.TypeArguments.Length > 0)
 					{
 						ret.Result = interfaceType.TypeArguments[0].ToDisplayString();

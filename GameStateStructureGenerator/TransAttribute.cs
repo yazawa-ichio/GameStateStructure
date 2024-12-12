@@ -47,6 +47,10 @@ namespace GameStateStructure.Generator
 			m_Data = data;
 			Type = type;
 			Symbol = data.ConstructorArguments[0].Value as ITypeSymbol;
+			if (data.ConstructorArguments.Length >= 2)
+			{
+				Name = data.ConstructorArguments[1].Value?.ToString();
+			}
 			foreach (System.Collections.Generic.KeyValuePair<string, TypedConstant> arg in data.NamedArguments)
 			{
 				switch (arg.Key)

@@ -15,9 +15,9 @@ namespace GameStateStructure
 		List<IAsyncDisposable> m_AsnycDisposable = new List<IAsyncDisposable>();
 		CancellationTokenSource m_Cancellation = new CancellationTokenSource();
 
-		public GameObject Root { get; internal set; }
+		public GameObject ContextObject { get; internal set; }
 
-		public CancellationToken CancellationToken => m_Cancellation.Token;
+		public CancellationToken DisposeCancellationToken => m_Cancellation.Token;
 
 		internal Context(GameState state)
 		{
@@ -102,7 +102,7 @@ namespace GameStateStructure
 			m_AsnycDisposable.Remove(disposable);
 		}
 
-		public async Task DisposeAsync()
+		internal async Task DisposeAsync()
 		{
 			if (m_Disposed) return;
 			m_Disposed = true;
@@ -138,7 +138,14 @@ namespace GameStateStructure
 			m_Cancellation.Dispose();
 			if (errors.Count > 0)
 			{
-				throw errors[0];
+				if (errors.Count == 1)
+				{
+					throw errors[0];
+				}
+				else
+				{
+					throw new AggregateException(errors);
+				}
 			}
 		}
 

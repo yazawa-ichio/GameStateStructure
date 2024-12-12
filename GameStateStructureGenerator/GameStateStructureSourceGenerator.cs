@@ -121,7 +121,14 @@ namespace GameStateStructure.Generator
 
 					string argParam = string.Join(", ", argsStrings);
 
-					emitter.AppendLine($"protected void {attr.Prefix}{e.Symbol.Name}({argParam})");
+					if (e.IsAsync())
+					{
+						emitter.AppendLine($"protected async {e.Symbol.ReturnType.ToDisplayString()} {attr.Prefix}{e.Symbol.Name}({argParam})");
+					}
+					else
+					{
+						emitter.AppendLine($"protected void {attr.Prefix}{e.Symbol.Name}({argParam})");
+					}
 
 					using (emitter.Brace())
 					{
@@ -132,16 +139,39 @@ namespace GameStateStructure.Generator
 
 						string inputParam = string.Join(", ", inputStrings);
 
-						if (e.Subscribe.ChildOnly)
+						if (e.Subscribe.ChildOnly && !e.Subscribe.Broadcast)
 						{
-							emitter.AppendLine($"GetParentState<{attr.Type.ToDisplayString()}>()?.{e.Symbol.Name}({inputParam});");
+							emitter.AppendLine($"var state = FindParentState<{attr.Type.ToDisplayString()}>();");
+							emitter.AppendLine($"if (state == null) return;");
+							if (e.IsAsync())
+							{
+								emitter.AppendLine($"await state.{e.Symbol.Name}({inputParam});");
+							}
+							else
+							{
+								emitter.AppendLine($"state.{e.Symbol.Name}({inputParam});");
+							}
 						}
 						else
 						{
-							emitter.AppendLine($"foreach(var state in  Manager.GetAllStates<{attr.Type.ToDisplayString()}>())");
+							if (e.Subscribe.ChildOnly)
+							{
+								emitter.AppendLine($"foreach(var state in  FindParentStates<{attr.Type.ToDisplayString()}>())");
+							}
+							else
+							{
+								emitter.AppendLine($"foreach(var state in  Manager.FindAllStates<{attr.Type.ToDisplayString()}>())");
+							}
 							using (emitter.Brace())
 							{
-								emitter.AppendLine($"state?.{e.Symbol.Name}({inputParam});");
+								if (e.IsAsync())
+								{
+									emitter.AppendLine($"await state.{e.Symbol.Name}({inputParam});");
+								}
+								else
+								{
+									emitter.AppendLine($"state.{e.Symbol.Name}({inputParam});");
+								}
 								if (!e.Subscribe.Broadcast)
 								{
 									emitter.AppendLine($"return;");
@@ -229,58 +259,94 @@ namespace GameStateStructure.Generator
 			using (emitter.Brace())
 			{
 				IEnumerable<string> argsStrings = stateData.Args.Select(x => !x.Option ? $"{x.Type} {x.ArgName}" : $"{x.Type} {x.ArgName} = default");
-				if (stateData.Modal || changeType == TransAttribute.ChangeType.Push)
+				if (stateData.IsProcess)
 				{
-					argsStrings = argsStrings.Append("CancellationToken token = default");
+					argsStrings = argsStrings.Append("CancellationToken ct = default");
 				}
 
 				string methodName = stateData.ShortName;
-				if (!string.IsNullOrEmpty(attr.Name))
+				if (attr.Name != null) // Use attribute name if it exists
 				{
 					methodName = attr.Name;
 				}
-
+				var typeName = stateData.ShortName;
 				string argParam = string.Join(", ", argsStrings);
-				if (stateData.Modal)
+				if (stateData.IsProcess)
 				{
 					if (string.IsNullOrEmpty(stateData.Result))
 					{
-						emitter.AppendLine($"protected Task Run{methodName}({argParam})");
+						emitter.AppendLine($"#if GSS_DISABLE_TYPE");
+						emitter.AppendLine($"private Task Run{methodName}({argParam})");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
-							emitter.AppendLine($"return Manager.Module<{stateData.Name}>(this, parameter, token);");
+							emitter.AppendLine($"return Manager.RunProcess<{stateData.Name}>(this, parameter, ct);");
 						}
+						emitter.AppendLine($"#else");
+						emitter.AppendLine($"private Task Run{methodName}<{typeName}>({argParam}) where {typeName} : {stateData.Name}");
+						using (emitter.Brace())
+						{
+							EmitSetParam();
+							emitter.AppendLine($"return Manager.RunProcess<{stateData.Name}>(this, parameter, ct);");
+						}
+						emitter.AppendLine($"#endif");
 					}
 					else
 					{
-						emitter.AppendLine($"protected Task<{stateData.Result}> Run{methodName}({argParam})");
+						emitter.AppendLine($"#if GSS_DISABLE_TYPE");
+						emitter.AppendLine($"private Task<{stateData.Result}> Run{methodName}({argParam})");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
-							emitter.AppendLine($"return Manager.Module<{stateData.Name}, {stateData.Result}>(this, parameter, token);");
+							emitter.AppendLine($"return Manager.RunProcess<{stateData.Name}, {stateData.Result}>(this, parameter, ct);");
 						}
+						emitter.AppendLine($"#else");
+						emitter.AppendLine($"private Task<{stateData.Result}> Run{methodName}<{typeName}>({argParam}) where {typeName} : {stateData.Name}");
+						using (emitter.Brace())
+						{
+							EmitSetParam();
+							emitter.AppendLine($"return Manager.RunProcess<{stateData.Name}, {stateData.Result}>(this, parameter, ct);");
+						}
+						emitter.AppendLine($"#endif");
 					}
 				}
 				else
 				{
 					if (changeType == TransAttribute.ChangeType.GoTo)
 					{
-						emitter.AppendLine($"protected void GoTo{methodName}({argParam})");
+						emitter.AppendLine($"#if GSS_DISABLE_TYPE");
+						emitter.AppendLine($"private void GoTo{methodName}({argParam})");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
 							emitter.AppendLine($"Manager.GoTo<{stateData.Name}>(this, parameter);");
 						}
-					}
-					else
-					{
-						emitter.AppendLine($"protected void Push{methodName}({argParam})");
+						emitter.AppendLine($"#else");
+						emitter.AppendLine($"private void GoTo{methodName}<{methodName}>({argParam}) where {methodName} : {stateData.Name}");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
-							emitter.AppendLine($"Manager.Push<{stateData.Name}>(this, parameter, token);");
+							emitter.AppendLine($"Manager.GoTo<{stateData.Name}>(this, parameter);");
 						}
+						emitter.AppendLine($"#endif");
+					}
+					else
+					{
+						emitter.AppendLine($"#if GSS_DISABLE_TYPE");
+						emitter.AppendLine($"private void Push{methodName}({argParam})");
+						using (emitter.Brace())
+						{
+							EmitSetParam();
+							emitter.AppendLine($"Manager.Push<{stateData.Name}>(this, parameter);");
+						}
+						emitter.AppendLine($"#else");
+						emitter.AppendLine($"private void Push{methodName}<{typeName}>({argParam}) where {typeName} : {stateData.Name}");
+						using (emitter.Brace())
+						{
+							EmitSetParam();
+							emitter.AppendLine($"Manager.Push<{stateData.Name}>(this, parameter);");
+						}
+						emitter.AppendLine($"#endif");
 					}
 				}
 

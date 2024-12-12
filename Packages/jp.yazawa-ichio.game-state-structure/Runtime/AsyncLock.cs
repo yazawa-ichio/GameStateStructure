@@ -28,6 +28,7 @@ namespace GameStateStructure
 
 		bool m_IsLocked = false;
 		object m_Lock = new object();
+		Exception m_Error;
 		Queue<TaskCompletionSource<IDisposable>> m_Waiters = new Queue<TaskCompletionSource<IDisposable>>();
 
 		public Task<IDisposable> Enter(CancellationToken token)
@@ -35,6 +36,10 @@ namespace GameStateStructure
 			token.ThrowIfCancellationRequested();
 			lock (m_Lock)
 			{
+				if (m_Error != null)
+				{
+					return Task.FromException<IDisposable>(m_Error);
+				}
 				if (!m_IsLocked)
 				{
 					m_IsLocked = true;
@@ -71,5 +76,21 @@ namespace GameStateStructure
 			}
 		}
 
+		public void SetError(TransitionHangException error)
+		{
+			m_Error = error;
+			lock (m_Lock)
+			{
+				while (m_Waiters.Count > 0)
+				{
+					var tsc = m_Waiters.Dequeue();
+					if (tsc.Task.IsCompleted)
+					{
+						continue;
+					}
+					tsc.TrySetException(error);
+				}
+			}
+		}
 	}
 }
