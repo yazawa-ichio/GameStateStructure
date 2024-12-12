@@ -265,26 +265,25 @@ namespace GameStateStructure.Generator
 				}
 
 				string methodName = stateData.ShortName;
-				if (!string.IsNullOrEmpty(attr.Name))
+				if (attr.Name != null) // Use attribute name if it exists
 				{
 					methodName = attr.Name;
 				}
-				string suffix = attr.Suffix;
-
+				var typeName = stateData.ShortName;
 				string argParam = string.Join(", ", argsStrings);
 				if (stateData.IsProcess)
 				{
 					if (string.IsNullOrEmpty(stateData.Result))
 					{
-						emitter.AppendLine($"#if GSS_UNIQUE_METHOD");
-						emitter.AppendLine($"protected Task Run{methodName}{suffix}({argParam})");
+						emitter.AppendLine($"#if GSS_DISABLE_TYPE");
+						emitter.AppendLine($"private Task Run{methodName}({argParam})");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
 							emitter.AppendLine($"return Manager.RunProcess<{stateData.Name}>(this, parameter, ct);");
 						}
 						emitter.AppendLine($"#else");
-						emitter.AppendLine($"protected Task Run{suffix}<{methodName}>({argParam}) where {methodName} : {stateData.Name}");
+						emitter.AppendLine($"private Task Run{methodName}<{typeName}>({argParam}) where {typeName} : {stateData.Name}");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
@@ -294,15 +293,15 @@ namespace GameStateStructure.Generator
 					}
 					else
 					{
-						emitter.AppendLine($"#if GSS_UNIQUE_METHOD");
-						emitter.AppendLine($"protected Task<{stateData.Result}> Run{methodName}{suffix}({argParam})");
+						emitter.AppendLine($"#if GSS_DISABLE_TYPE");
+						emitter.AppendLine($"private Task<{stateData.Result}> Run{methodName}({argParam})");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
 							emitter.AppendLine($"return Manager.RunProcess<{stateData.Name}, {stateData.Result}>(this, parameter, ct);");
 						}
 						emitter.AppendLine($"#else");
-						emitter.AppendLine($"protected Task<{stateData.Result}> Run{suffix}<{methodName}>({argParam}) where {methodName} : {stateData.Name}");
+						emitter.AppendLine($"private Task<{stateData.Result}> Run{methodName}<{typeName}>({argParam}) where {typeName} : {stateData.Name}");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
@@ -315,15 +314,15 @@ namespace GameStateStructure.Generator
 				{
 					if (changeType == TransAttribute.ChangeType.GoTo)
 					{
-						emitter.AppendLine($"#if GSS_UNIQUE_METHOD");
-						emitter.AppendLine($"protected void GoTo{methodName}{suffix}({argParam})");
+						emitter.AppendLine($"#if GSS_DISABLE_TYPE");
+						emitter.AppendLine($"private void GoTo{methodName}({argParam})");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
 							emitter.AppendLine($"Manager.GoTo<{stateData.Name}>(this, parameter);");
 						}
 						emitter.AppendLine($"#else");
-						emitter.AppendLine($"protected void GoTo{suffix}<{methodName}>({argParam}) where {methodName} : {stateData.Name}");
+						emitter.AppendLine($"private void GoTo{methodName}<{methodName}>({argParam}) where {methodName} : {stateData.Name}");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
@@ -333,15 +332,15 @@ namespace GameStateStructure.Generator
 					}
 					else
 					{
-						emitter.AppendLine($"#if GSS_UNIQUE_METHOD");
-						emitter.AppendLine($"protected void Push{methodName}{suffix}({argParam})");
+						emitter.AppendLine($"#if GSS_DISABLE_TYPE");
+						emitter.AppendLine($"private void Push{methodName}({argParam})");
 						using (emitter.Brace())
 						{
 							EmitSetParam();
 							emitter.AppendLine($"Manager.Push<{stateData.Name}>(this, parameter);");
 						}
 						emitter.AppendLine($"#else");
-						emitter.AppendLine($"protected void Push{suffix}<{methodName}>({argParam}) where {methodName} : {stateData.Name}");
+						emitter.AppendLine($"private void Push{methodName}<{typeName}>({argParam}) where {typeName} : {stateData.Name}");
 						using (emitter.Brace())
 						{
 							EmitSetParam();

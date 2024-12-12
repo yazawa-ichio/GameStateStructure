@@ -8,7 +8,7 @@ namespace GameStateStructure.Tests
 {
 	partial class TransitionTest
 	{
-		[Push(typeof(TestProcess))]
+		[Push(typeof(TestProcess), "")]
 		[Push(typeof(MainAA), "AA")]
 		[Push(typeof(MainAB), "AB")]
 		[GoTo(typeof(MainB))]
@@ -20,7 +20,7 @@ namespace GameStateStructure.Tests
 
 			public Task DoPushProcess(Func<CancellationToken, Task> task) => Run<TestProcess>(task);
 
-			public void DoGoToB() => GoTo<MainB>();
+			public void DoGoToB() => GoToMainB<MainB>();
 		}
 
 		class TestProcess : GameState, IProcess
@@ -47,7 +47,7 @@ namespace GameStateStructure.Tests
 			}
 
 			public void DoPop() => Pop();
-			public void DoGoToB() => GoTo<MainAB>();
+			public void DoGoToB() => GoToMainAB<MainAB>();
 		}
 
 		[GoTo(typeof(MainAA))]
@@ -61,13 +61,13 @@ namespace GameStateStructure.Tests
 			}
 
 			public void DoPop() => Pop();
-			public void DoGoTo() => GoTo<MainAA>();
+			public void DoGoTo() => GoToMainAA<MainAA>();
 		}
 
 		[GoTo(typeof(MainA))]
 		partial class MainB : GameState
 		{
-			public void DoGoToA() => GoTo<MainA>();
+			public void DoGoToA() => GoToMainA<MainA>();
 
 			internal void DoPop()
 			{
@@ -164,7 +164,15 @@ namespace GameStateStructure.Tests
 			{
 				mainB = context.Manager.FindState<MainB>();
 				Assert.IsNotNull(mainB);
-				Assert.Throws<InvalidOperationException>(() => mainB.DoPop());
+
+				Exception exception = null;
+				context.Manager.ErrorHandler = ErrorHandler.Create((Exception ex) =>
+				{
+					exception = ex;
+				});
+				mainB.DoPop();
+				Assert.NotNull(exception);
+				Assert.AreEqual(typeof(InvalidOperationException), exception?.GetType());
 			}
 		}
 

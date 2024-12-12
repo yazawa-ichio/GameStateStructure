@@ -14,12 +14,12 @@ class Root : GameState
 	protected override void OnEnter()
 	{
 		// SrouceGeneratorで自動生成されます。
-		Push<Boot>();
+		PushBoot<Boot>();
 	}
 
 	public void Reboot()
 	{
-		GoTo<Root>();
+		GoToRoot<Root>();
 	}
 }
 

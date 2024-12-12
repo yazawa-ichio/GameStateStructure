@@ -131,6 +131,11 @@ namespace GameStateStructure
 			return Entry<T>(new(), new());
 		}
 
+		public Task Entry<T>(Config config) where T : GameState
+		{
+			return Entry<T>(new(), config);
+		}
+
 		public async Task Entry<T>(ParameterHolder parameter, Config config) where T : GameState
 		{
 			m_AsyncLock?.SetError(new TransitionHangException());

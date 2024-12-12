@@ -17,19 +17,19 @@ namespace GameStateStructure.Tests
 		{
 			public void Reload()
 			{
-				GoTo<Root>();
+				GoToRoot<Root>();
 			}
 
 			public void PushA()
 			{
-				Push<MainA>("A", 0, 0, this, null);
+				PushMainA<MainA>("A", 0, 0, this, null);
 			}
 
 		}
 
 		[GoTo(typeof(MainB))]
 		[Push(typeof(Process))]
-		[Push(typeof(InitializeErrorTest))]
+		[Push(typeof(InitializeErrorTest), "Test")]
 		partial class MainA : GameState
 		{
 			[Arg]
@@ -46,17 +46,17 @@ namespace GameStateStructure.Tests
 
 			public void ChangeB()
 			{
-				GoTo<MainB>();
+				GoToMainB<MainB>();
 			}
 
 			public async Task ProcessTest(bool error)
 			{
-				await Run<Process>(error);
+				await RunProcess<Process>(error);
 			}
 
 			public void InitializeError(bool error)
 			{
-				Push<InitializeErrorTest>(error);
+				PushTest<InitializeErrorTest>(error);
 			}
 
 		}
@@ -72,7 +72,7 @@ namespace GameStateStructure.Tests
 		{
 			protected override void OnEnter()
 			{
-				Push<Child>();
+				PushChild<Child>();
 			}
 
 			[SubscribeEvent]
