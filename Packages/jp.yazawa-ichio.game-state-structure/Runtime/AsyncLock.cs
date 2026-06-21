@@ -1,7 +1,9 @@
-﻿using System;
+﻿using GameStateStructure.Logger;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using UnityEngine;
 
 namespace GameStateStructure
 {
@@ -30,6 +32,17 @@ namespace GameStateStructure
 		object m_Lock = new object();
 		Exception m_Error;
 		Queue<TaskCompletionSource<IDisposable>> m_Waiters = new Queue<TaskCompletionSource<IDisposable>>();
+
+		public bool IsLocked
+		{
+			get
+			{
+				lock (m_Lock)
+				{
+					return m_IsLocked;
+				}
+			}
+		}
 
 		public Task<IDisposable> Enter(CancellationToken token)
 		{
@@ -78,7 +91,15 @@ namespace GameStateStructure
 
 		public void SetError(TransitionHangException error)
 		{
-			m_Error = error;
+			if (!Application.isPlaying)
+			{
+				Log.Debug($"AsyncLock.SetError called in editor mode, this is not expected. {0}", error);
+				m_Error = new OperationCanceledException();
+			}
+			else
+			{
+				m_Error = error;
+			}
 			lock (m_Lock)
 			{
 				while (m_Waiters.Count > 0)
@@ -88,7 +109,7 @@ namespace GameStateStructure
 					{
 						continue;
 					}
-					tsc.TrySetException(error);
+					tsc.TrySetException(m_Error);
 				}
 			}
 		}

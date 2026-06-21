@@ -37,14 +37,11 @@ namespace GameStateStructure
 			decorator.Dispose();
 		}
 
-		public void Clear()
+		public async Task ForceRelease()
 		{
 			var list = m_List.ToArray();
 			m_List.Clear();
-			foreach (var decorator in list)
-			{
-				decorator.Dispose();
-			}
+			await Task.WhenAll(list.Select(x => x.DisposeAsync().AsTask()));
 		}
 
 		IEnumerable<IDecorator> GetDecorators(GameState state)

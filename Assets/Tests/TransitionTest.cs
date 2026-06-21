@@ -96,7 +96,7 @@ namespace GameStateStructure.Tests
 			mainA = context.Manager.FindState<MainA>();
 			Assert.IsNotNull(mainA);
 			{
-				// 遷移時はロックされる
+				// Processの実行中の他の遷移時はロックされない
 
 				var tcs = new TaskCompletionSource<bool>();
 				var process = mainA.DoPushProcess((token) =>
@@ -112,7 +112,7 @@ namespace GameStateStructure.Tests
 				await Task.Yield();
 				await Task.Yield();
 				Assert.IsNotNull(context.Manager.FindState<TestProcess>());
-				Assert.IsNull(context.Manager.FindState<MainAA>());
+				Assert.IsNotNull(context.Manager.FindState<MainAA>());
 				tcs.SetResult(true);
 				Assert.IsNull(context.Manager.FindState<TestProcess>());
 				var aa = context.Manager.FindState<MainAA>();
@@ -157,9 +157,8 @@ namespace GameStateStructure.Tests
 				Assert.IsTrue(cancellationToken.IsCancellationRequested);
 				Assert.IsNull(context.Manager.FindState<TestProcess>());
 				Assert.ThrowsAsync<TaskCanceledException>(async () => { await process; });
-				Assert.AreEqual(aaCount, MainAA.Count);
-				Assert.AreEqual(abCount, MainAB.Count);
-
+				Assert.AreEqual(aaCount + 1, MainAA.Count);
+				Assert.AreEqual(abCount + 1, MainAB.Count);
 			}
 			{
 				mainB = context.Manager.FindState<MainB>();

@@ -1,10 +1,10 @@
 ﻿using GameStateStructure.Logger;
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+using UnityEngine.Pool;
 
 namespace GameStateStructure
 {
@@ -31,10 +31,15 @@ namespace GameStateStructure
 
 		public DecoratorCollection Decorators { get; private set; }
 
+		public bool IsBusy => m_AsyncLock?.IsLocked ?? false;
+
 		public GameState Root => m_Data?.State;
+
+		CancellationToken m_DefaultCancellationToken;
 
 		private void Awake()
 		{
+			m_DefaultCancellationToken = destroyCancellationToken;
 			Log.Debug("Awake {0}", this);
 			All.Add(this);
 		}
@@ -93,15 +98,15 @@ namespace GameStateStructure
 			}
 			data.PreCancel();
 			data.Parent?.Children.Remove(data);
+			var state = data.State;
+			data.State = null;
+			await Decorators.DoPreExit(state);
 			var children = data.Children.ToArray();
 			data.Children.Clear();
 			foreach (var child in children)
 			{
 				await ExitAll(child);
 			}
-			var state = data.State;
-			data.State = null;
-			await Decorators.DoPreExit(state);
 			await state.DoExit();
 			await Decorators.DoPostExit(state);
 			Log.Debug("DoPop {0}", state);
@@ -124,6 +129,11 @@ namespace GameStateStructure
 			{
 				await dispose;
 			}
+			var destroy = data.State?.Decorators?.ForceRelease();
+			if (destroy != null)
+			{
+				await destroy;
+			}
 		}
 
 		public Task Entry<T>() where T : GameState
@@ -140,8 +150,10 @@ namespace GameStateStructure
 		{
 			m_AsyncLock?.SetError(new TransitionHangException());
 			await ForceRelease(m_Data);
-			Decorators?.Clear();
-
+			if (Decorators != null)
+			{
+				await Decorators.ForceRelease();
+			}
 			Activator = config.Activator;
 			ErrorHandler = config.ErrorHandler;
 			Decorators = config.Decorator;
@@ -161,7 +173,7 @@ namespace GameStateStructure
 			Decorators.DoPostEnter(state);
 		}
 
-		internal async void Handle(Func<Task> task)
+		internal async void Handle(Func<Task> task, bool ignoreCancel = false)
 		{
 			try
 			{
@@ -169,6 +181,11 @@ namespace GameStateStructure
 			}
 			catch (Exception e)
 			{
+				if (ignoreCancel && e is OperationCanceledException)
+				{
+					Log.Debug("OperationCanceledException {0}", e);
+					return;
+				}
 				if (m_Destroyed)
 				{
 					Log.Warning("Object Destroyed {0}", e);
@@ -191,9 +208,9 @@ namespace GameStateStructure
 		{
 			Handle(async () =>
 			{
+				using var _ = await m_AsyncLock.Enter(m_DefaultCancellationToken);
 				FindStackData(current)?.PreCancel();
 
-				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
 				var data = FindStackData(current);
 				if (data == null)
 				{
@@ -232,7 +249,7 @@ namespace GameStateStructure
 			Log.Debug("{0}.Push<{1}>", current, typeof(T));
 			Handle(async () =>
 			{
-				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
+				using var _ = await m_AsyncLock.Enter(m_DefaultCancellationToken);
 				var data = FindStackData(current);
 				if (data == null || data.CancellationTokenSource == null)
 				{
@@ -257,8 +274,8 @@ namespace GameStateStructure
 		{
 			Handle(async () =>
 			{
+				using var _ = await m_AsyncLock.Enter(m_DefaultCancellationToken);
 				FindStackData(current)?.PreCancel();
-				using var _ = await m_AsyncLock.Enter(CancellationToken.None);
 				if (current.IsRoot)
 				{
 					throw new InvalidOperationException("Root state can not be popped");
@@ -274,9 +291,16 @@ namespace GameStateStructure
 
 		public async Task<TResult> RunProcess<TGameState, TResult>(GameState current, ParameterHolder parameter, CancellationToken token) where TGameState : GameState, IProcess<TResult>
 		{
-			using var _ = await m_AsyncLock.Enter(token);
+			using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, m_DefaultCancellationToken);
+			token = linkedCts.Token;
 
-			(StackData child, TGameState state) = await ProcessPush<TGameState>(current, parameter, token);
+			StackData child;
+			TGameState state;
+
+			using (await m_AsyncLock.Enter(token))
+			{
+				(child, state) = await ProcessPush<TGameState>(current, parameter, token);
+			}
 
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, child.CancellationTokenSource.Token);
 			token = cts.Token;
@@ -289,19 +313,31 @@ namespace GameStateStructure
 			}
 			catch
 			{
-				await HandleExitAll(child, token);
+				using (await m_AsyncLock.Enter(m_DefaultCancellationToken))
+				{
+					await HandleExitAll(child, token);
+				}
 				throw;
 			}
 			Log.Debug("{0}.Process<{1}, {2}> Run Result {3}", current, typeof(TGameState), typeof(TResult), result);
-			await HandleExitAll(child, token);
+			using (await m_AsyncLock.Enter(m_DefaultCancellationToken))
+			{
+				await HandleExitAll(child, token);
+			}
 			return result;
 		}
 
 		public async Task RunProcess<TGameState>(GameState current, ParameterHolder parameter, CancellationToken token) where TGameState : GameState, IProcess
 		{
-			using var _ = await m_AsyncLock.Enter(token);
+			using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, m_DefaultCancellationToken);
+			token = linkedCts.Token;
 
-			(StackData child, TGameState state) = await ProcessPush<TGameState>(current, parameter, token);
+			StackData child;
+			TGameState state;
+			using (await m_AsyncLock.Enter(token))
+			{
+				(child, state) = await ProcessPush<TGameState>(current, parameter, token);
+			}
 
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, child.CancellationTokenSource.Token);
 			token = cts.Token;
@@ -313,11 +349,17 @@ namespace GameStateStructure
 			}
 			catch
 			{
-				await HandleExitAll(child, token);
+				using (await m_AsyncLock.Enter(m_DefaultCancellationToken))
+				{
+					await HandleExitAll(child, token);
+				}
 				throw;
 			}
 			Log.Debug("{0}.Process<{1}> Run Result", current, typeof(TGameState));
-			await HandleExitAll(child, token);
+			using (await m_AsyncLock.Enter(m_DefaultCancellationToken))
+			{
+				await HandleExitAll(child, token);
+			}
 		}
 
 		async Task HandleExitAll(StackData data, CancellationToken token)
@@ -447,29 +489,50 @@ namespace GameStateStructure
 
 		public IEnumerable<T> FindAllStates<T>() where T : class
 		{
-			foreach (var state in GetAllStates())
+			using var _ = ListPool<T>.Get(out var list);
+			FindAllStates(list);
+			foreach (var state in list)
+			{
+				yield return state;
+			}
+		}
+
+		public void FindAllStates<T>(List<T> list) where T : class
+		{
+			using var _ = ListPool<GameState>.Get(out var tmp);
+			GetAllStates(tmp);
+			foreach (var state in tmp)
 			{
 				if (state is T ret)
 				{
-					yield return ret;
+					list.Add(ret);
 				}
 			}
 		}
 
 		public T FindState<T>() where T : class
 		{
-			return FindAllStates<T>().FirstOrDefault();
+			using var _ = ListPool<GameState>.Get(out var tmp);
+			GetAllStates(tmp);
+			foreach (var state in tmp)
+			{
+				if (state is T ret)
+				{
+					return ret;
+				}
+			}
+			return default;
 		}
 
-		internal IEnumerable<GameState> GetAllStates()
+		void GetAllStates(List<GameState> list)
 		{
-			return GetImpl(m_Data);
+			GetImpl(m_Data, list);
 
-			IEnumerable<GameState> GetImpl(StackData data)
+			void GetImpl(StackData data, List<GameState> list)
 			{
 				if (data == null)
 				{
-					yield break;
+					return;
 				}
 				foreach (var child in data.Children)
 				{
@@ -477,14 +540,11 @@ namespace GameStateStructure
 					{
 						continue;
 					}
-					foreach (var state in GetImpl(child))
-					{
-						yield return state;
-					}
+					GetImpl(child, list);
 				}
 				if (data.State != null && data.State.Active)
 				{
-					yield return data.State;
+					list.Add(data.State);
 				}
 			}
 		}

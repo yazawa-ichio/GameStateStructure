@@ -105,9 +105,9 @@ namespace GameStateStructure
 			Manager.Pop(this);
 		}
 
-		protected void Handle(Func<Task> task)
+		protected void Handle(Func<Task> task, bool ignoreCancel = true)
 		{
-			Manager.Handle(task);
+			Manager.Handle(task, ignoreCancel);
 		}
 
 		protected GameState GetParentState()

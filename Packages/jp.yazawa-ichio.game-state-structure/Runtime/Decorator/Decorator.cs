@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace GameStateStructure
 {
 
-	public interface IDecorator : IDisposable
+	public interface IDecorator : IDisposable, IAsyncDisposable
 	{
 		int Priority { get; }
 		Task DoPreInitialize(GameState state);
@@ -129,6 +129,17 @@ namespace GameStateStructure
 		}
 
 		protected virtual Task OnModulRun(GameState state, TMaker maker)
+		{
+			return Task.CompletedTask;
+		}
+
+		async ValueTask IAsyncDisposable.DisposeAsync()
+		{
+			await DisposeAsync();
+			Dispose();
+		}
+
+		protected virtual Task DisposeAsync()
 		{
 			return Task.CompletedTask;
 		}

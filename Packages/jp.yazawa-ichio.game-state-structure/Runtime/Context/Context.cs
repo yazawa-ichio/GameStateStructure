@@ -17,11 +17,12 @@ namespace GameStateStructure
 
 		public GameObject ContextObject { get; internal set; }
 
-		public CancellationToken DisposeCancellationToken => m_Cancellation.Token;
+		public CancellationToken DisposeCancellationToken { get; private set; }
 
 		internal Context(GameState state)
 		{
 			m_State = state;
+			DisposeCancellationToken = m_Cancellation.Token;
 		}
 
 		public T Manage<T>(T disposable) where T : IDisposable

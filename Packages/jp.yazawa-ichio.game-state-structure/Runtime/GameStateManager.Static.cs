@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using UnityEngine.Pool;
 
 namespace GameStateStructure
 {
@@ -18,18 +19,21 @@ namespace GameStateStructure
 
 		public IEnumerable<T> GetAllStates<T>() where T : class
 		{
-			foreach (var manager in m_List)
+			using var _ = ListPool<T>.Get(out var list);
+			GetAllStates(list);
+			foreach (var item in list)
 			{
-				foreach (var state in manager.GetAllStates())
-				{
-					if (state is T ret)
-					{
-						yield return ret;
-					}
-				}
+				yield return item;
 			}
 		}
 
+		public void GetAllStates<T>(List<T> list) where T : class
+		{
+			foreach (var manager in m_List)
+			{
+				manager.FindAllStates(list);
+			}
+		}
 	}
 
 	public partial class GameStateManager
