@@ -136,6 +136,23 @@ namespace GameStateStructure
 			}
 		}
 
+		async Task ExitParallelChild(StackData data, GameState state)
+		{
+			var current = data.State;
+			if (!current.IsAllowParallelChild(state))
+			{
+				foreach (var exitChild in data.Children.ToArray())
+				{
+					var exitState = exitChild.State;
+					if (exitState.GetType().IsDefined(typeof(IgnoreParallelPopAttribute), true))
+					{
+						continue;
+					}
+					await ExitAll(exitChild);
+				}
+			}
+		}
+
 		public Task Entry<T>() where T : GameState
 		{
 			return Entry<T>(new(), new());
@@ -259,6 +276,7 @@ namespace GameStateStructure
 				await Decorators.DoPreInitialize(state);
 				await state.DoInitialize();
 				await Decorators.DoPostInitialize(state);
+				await ExitParallelChild(data, state);
 				var child = new StackData();
 				child.State = state;
 				child.Parent = data;
@@ -403,6 +421,7 @@ namespace GameStateStructure
 				await Decorators.DoPreInitialize(state);
 				await state.DoInitialize();
 				await Decorators.DoPostInitialize(state);
+				await ExitParallelChild(data, state);
 				child = new StackData();
 				child.State = state;
 				child.Parent = data;
@@ -522,6 +541,16 @@ namespace GameStateStructure
 				}
 			}
 			return default;
+		}
+
+		internal bool IsLeaf(GameState state)
+		{
+			var data = FindStackData(state);
+			if (data == null)
+			{
+				return false;
+			}
+			return data.Children.Count == 0;
 		}
 
 		void GetAllStates(List<GameState> list)

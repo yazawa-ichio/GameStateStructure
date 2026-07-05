@@ -14,6 +14,13 @@ namespace GameStateStructure.Tests
 		[GoTo(typeof(MainB))]
 		partial class MainA : GameState
 		{
+			public bool TestIsAllowParallelChild = true;
+
+			protected override bool IsAllowParallelChild(GameState state)
+			{
+				return TestIsAllowParallelChild;
+			}
+
 			public void DoPushA() => PushAA<MainAA>();
 
 			public void DoPushB() => PushAB<MainAB>();
@@ -175,6 +182,30 @@ namespace GameStateStructure.Tests
 			}
 		}
 
+		[Test]
+		public async Task AllowParallelChildTest()
+		{
+			using var context = new TestContext();
+			await context.Manager.Entry<MainA>();
+
+			var mainA = context.Manager.FindState<MainA>();
+			mainA.TestIsAllowParallelChild = false;
+			Assert.IsNotNull(mainA);
+			mainA.DoPushA();
+			var aa = context.Manager.FindState<MainAA>();
+			Assert.IsNotNull(aa);
+			Assert.IsFalse(aa.Context.DisposeCancellationToken.IsCancellationRequested);
+			mainA.DoPushB();
+			Assert.IsTrue(aa.Context.DisposeCancellationToken.IsCancellationRequested);
+			Assert.IsNull(context.Manager.FindState<MainAA>());
+			var ab = context.Manager.FindState<MainAB>();
+			Assert.IsNotNull(ab);
+			Assert.IsFalse(ab.Context.DisposeCancellationToken.IsCancellationRequested);
+
+			await mainA.DoPushProcess((token) => Task.CompletedTask);
+
+			Assert.IsTrue(ab.Context.DisposeCancellationToken.IsCancellationRequested);
+		}
 	}
 
 }

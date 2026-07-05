@@ -68,4 +68,9 @@ namespace GameStateStructure
 		}
 	}
 
+	[AttributeUsage(AttributeTargets.Class)]
+	public sealed class IgnoreParallelPopAttribute : Attribute
+	{
+	}
+
 }

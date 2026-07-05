@@ -24,6 +24,8 @@ namespace GameStateStructure
 
 		public bool IsRoot => Manager.Root == this;
 
+		public bool IsLeaf => Manager.IsLeaf(this);
+
 		public Context Context { get; internal set; }
 
 		public GameStateManager Manager { get; internal set; }
@@ -34,6 +36,11 @@ namespace GameStateStructure
 		{
 			Manager = manager;
 			Context = context;
+		}
+
+		protected internal virtual bool IsAllowParallelChild(GameState state)
+		{
+			return false;
 		}
 
 		internal void DoUpdate()
