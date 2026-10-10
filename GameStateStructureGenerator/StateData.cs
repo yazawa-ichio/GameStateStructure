@@ -1,5 +1,6 @@
 ﻿using Microsoft.CodeAnalysis;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace GameStateStructure.Generator
 {
@@ -9,7 +10,6 @@ namespace GameStateStructure.Generator
 		public string Name;
 		public string ArgName;
 		public string Type;
-		public bool IsValueType;
 	}
 
 	internal class StateData
@@ -19,6 +19,19 @@ namespace GameStateStructure.Generator
 		public bool IsProcess;
 		public string Result;
 		public List<StateArg> Args = new();
+
+		/// <summary>遷移先が IProcess かどうか。診断と生成で同じ判定を使う。</summary>
+		public static bool IsProcessType(ITypeSymbol symbol)
+		{
+			foreach (INamedTypeSymbol interfaceType in symbol.AllInterfaces)
+			{
+				if (interfaceType.ToDisplayString().Contains("GameStateStructure.IProcess"))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
 
 		public static StateData Create(AttributeData data)
 		{
@@ -34,7 +47,8 @@ namespace GameStateStructure.Generator
 				Name = name,
 				ShortName = symbol.Name
 			};
-			foreach (INamedTypeSymbol interfaceType in symbol.Interfaces)
+			// 基底で実装された IProcess も拾う。Interfaces だと直接実装しか見えない
+			foreach (INamedTypeSymbol interfaceType in symbol.AllInterfaces)
 			{
 				if (interfaceType.ToDisplayString().Contains("GameStateStructure.IProcess"))
 				{
@@ -47,24 +61,36 @@ namespace GameStateStructure.Generator
 				}
 			}
 
-			foreach (ISymbol member in symbol.GetMembers())
+			// [Arg] は基底にも付けられる。実行時の代入は基底のプロパティも拾うため、
+			// ここで宣言型だけを見ると引数が黙って消える。
+			var seen = new HashSet<string>();
+			for (INamedTypeSymbol type = symbol as INamedTypeSymbol; type != null; type = type.BaseType)
 			{
-				foreach (AttributeData attr in member.GetAttributes())
+				foreach (ISymbol member in type.GetMembers())
 				{
-					TrySetArg(ret, member, attr);
+					foreach (AttributeData attr in member.GetAttributes())
+					{
+						TrySetArg(ret, member, attr, seen);
+					}
 				}
 			}
 
-			ret.Args.Sort((a, b) => a.Option.CompareTo(b.Option));
+			// 派生側の引数の位置が変わらないよう、安定な並べ替えを使う
+			ret.Args = ret.Args.OrderBy(x => x.Option).ToList();
 
 			return ret;
 		}
 
-		private static void TrySetArg(StateData ret, ISymbol member, AttributeData attr)
+		private static void TrySetArg(StateData ret, ISymbol member, AttributeData attr, HashSet<string> seen)
 		{
 			if (member is IPropertySymbol property)
 			{
 				if (attr.AttributeClass.ToDisplayString() != "GameStateStructure.ArgAttribute")
+				{
+					return;
+				}
+				// 派生で同名を隠している場合は派生側を使う
+				if (!seen.Add(member.Name))
 				{
 					return;
 				}
@@ -82,7 +108,6 @@ namespace GameStateStructure.Generator
 				arg.Name = member.Name;
 				arg.ArgName = char.ToLower(member.Name[0], System.Globalization.CultureInfo.InvariantCulture) + member.Name.Substring(1);
 				arg.Type = property.Type.ToDisplayString();
-				arg.IsValueType = property.Type.IsValueType;
 			}
 		}
 

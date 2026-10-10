@@ -11,7 +11,7 @@ namespace GameStateStructure
 
 	public class Config
 	{
-		public IActivator Activator { get; set; }
+		public IStateFactory Factory { get; set; }
 
 		public IErrorHandler ErrorHandler { get; set; }
 
@@ -25,7 +25,38 @@ namespace GameStateStructure
 		AsyncLock m_AsyncLock = new();
 		bool m_Destroyed;
 
-		public IActivator Activator { get; set; }
+		List<StackData> m_Exiting = new List<StackData>();
+
+		int m_Generation;
+
+		readonly struct TransitionScope
+		{
+			readonly GameStateManager m_Manager;
+			readonly int m_Generation;
+
+			/// <summary>開始時のロック。例外で止めるのは常にこちら。</summary>
+			public AsyncLock Lock { get; }
+
+			public TransitionScope(GameStateManager manager)
+			{
+				m_Manager = manager;
+				m_Generation = manager.m_Generation;
+				Lock = manager.m_AsyncLock;
+			}
+
+			/// <summary>Entry で作り直された後か。</summary>
+			public bool IsStale => m_Manager == null || m_Generation != m_Manager.m_Generation;
+
+			public void ThrowIfAborted()
+			{
+				if (IsStale)
+				{
+					throw new TransitionAbortedException();
+				}
+			}
+		}
+
+		public IStateFactory Factory { get; set; }
 
 		public IErrorHandler ErrorHandler { get; set; }
 
@@ -68,52 +99,93 @@ namespace GameStateStructure
 			}
 		}
 
-		T CreateState<T>(ParameterHolder parameter) where T : GameState
+		T CreateState<T>(ParameterHolder parameter, StackData parent, Type branch, out IDisposable factoryValue)
+			where T : GameState
 		{
-			var state = New();
+			var (state, value) = New();
+			factoryValue = value;
 			var context = new Context(state);
-			var obj = new GameObject(typeof(T).Name);
-			obj.transform.SetParent(transform);
-			context.ContextObject = context.Manage(obj);
-			state.Setup(this, context);
-			parameter.Apply(state);
+			context.SetOwned(value);
+			try
+			{
+				var obj = new GameObject(typeof(T).Name);
+				obj.transform.SetParent(transform);
+				context.ContextObject = context.Manage(obj);
+				state.Setup(this, context);
+				parameter.Apply(state);
+			}
+			catch
+			{
+				SafeRelease(context);
+				throw;
+			}
 			return state;
 
-			T New()
+			(T, IDisposable) New()
 			{
-				var activator = Activator;
-				if (activator != null)
+				var factory = Factory;
+				if (factory == null)
 				{
-					return activator.Create<T>();
+					return (System.Activator.CreateInstance<T>(), null);
 				}
-				return System.Activator.CreateInstance<T>();
+				return factory.Create<T>(new StateCreationContext(branch), parent?.FactoryValue);
 			}
 		}
 
-		async Task ExitAll(StackData data)
+		Task ExitAll(StackData data, PopReason reason)
 		{
-			if (data == null)
+			return ExitAllCore(data, data?.Parent?.State, reason);
+		}
+
+		async Task ExitAllCore(StackData data, GameState parentState, PopReason reason)
+		{
+			// State が null なのは解体済みの印。親の遷移で先に畳まれた子に対して
+			// RunProcess の後片付けが再度ここへ来る
+			if (data == null || data.State == null)
 			{
 				return;
 			}
+			var scope = new TransitionScope(this);
 			data.PreCancel();
 			data.Parent?.Children.Remove(data);
 			var state = data.State;
 			data.State = null;
-			await Decorators.DoPreExit(state);
-			var children = data.Children.ToArray();
-			data.Children.Clear();
-			foreach (var child in children)
+			data.Exiting = state;
+			m_Exiting.Add(data);
+			var completed = false;
+			try
 			{
-				await ExitAll(child);
+				await Decorators.DoPreExit(state);
+				while (data.Children.Count > 0)
+				{
+					await ExitAllCore(data.Children[0], state, PopReason.ParentExit);
+				}
+				await state.DoExit();
+				if (!scope.IsStale)
+				{
+					await Decorators.DoPostExit(state);
+				}
+				completed = true;
 			}
-			await state.DoExit();
-			await Decorators.DoPostExit(state);
-			Log.Debug("DoPop {0}", state);
-			data.Parent?.State?.OnPopChild(state);
+			finally
+			{
+				m_Exiting.Remove(data);
+				if (!completed)
+				{
+					ReleaseExiting(data);
+				}
+			}
+			if (scope.IsStale)
+			{
+				Log.Debug("DoPop aborted {0}", state);
+				return;
+			}
+			Log.Debug("DoPop {0} ({1})", state, reason);
+			Notify(new StateEvent(StateEventType.Exit, state, reason));
+			parentState?.OnPopChild(state, reason);
 		}
 
-		async Task ForceRelease(StackData data)
+		void ForceRelease(StackData data)
 		{
 			if (data == null)
 			{
@@ -122,33 +194,149 @@ namespace GameStateStructure
 			data.PreCancel();
 			foreach (var child in data.Children.ToArray())
 			{
-				await ForceRelease(child);
+				ForceRelease(child);
 			}
-			var dispose = data.State?.Context?.DisposeAsync();
-			if (dispose != null)
+			data.Children.Clear();
+			var released = data.State;
+			data.State = null;
+			SafeRelease(released?.Context);
+			SafeRelease(released?.DescendantDecorators);
+			if (released != null)
 			{
-				await dispose;
-			}
-			var destroy = data.State?.Decorators?.ForceRelease();
-			if (destroy != null)
-			{
-				await destroy;
+				Notify(new StateEvent(StateEventType.ForceRelease, released));
 			}
 		}
 
-		async Task ExitParallelChild(StackData data, GameState state)
+		void ForceReleaseExiting()
 		{
-			var current = data.State;
-			if (!current.IsAllowParallelChild(state))
+			var exiting = m_Exiting.ToArray();
+			m_Exiting.Clear();
+			foreach (var data in exiting)
 			{
-				foreach (var exitChild in data.Children.ToArray())
+				var released = data.Exiting;
+				ReleaseExiting(data);
+				if (released != null)
 				{
-					var exitState = exitChild.State;
-					if (exitState.GetType().IsDefined(typeof(IgnoreParallelPopAttribute), true))
-					{
-						continue;
-					}
-					await ExitAll(exitChild);
+					Notify(new StateEvent(StateEventType.ForceRelease, released));
+				}
+			}
+		}
+
+		void ReleaseExiting(StackData data)
+		{
+			foreach (var child in data.Children.ToArray())
+			{
+				ForceRelease(child);
+			}
+			data.Children.Clear();
+			var released = data.Exiting;
+			data.Exiting = null;
+			if (released == null)
+			{
+				return;
+			}
+			SafeRelease(released.Context);
+			SafeRelease(released.DescendantDecorators);
+		}
+
+
+		void SafeRelease(Context context)
+		{
+			if (context == null)
+			{
+				return;
+			}
+			try
+			{
+				context.ForceDispose();
+			}
+			catch (Exception e)
+			{
+				ReportReleaseError(e);
+			}
+		}
+
+		void SafeRelease(DecoratorCollection decorators)
+		{
+			if (decorators == null)
+			{
+				return;
+			}
+			try
+			{
+				decorators.ForceRelease();
+			}
+			catch (Exception e)
+			{
+				ReportReleaseError(e);
+			}
+		}
+
+		void ReportReleaseError(Exception e)
+		{
+			Log.Warning("ForceRelease failed {0}", e);
+			ReportError(e);
+		}
+
+		// 新しいステートの初期化が終わってから呼ぶこと。失敗したときに既存のステートを畳んでしまわないため
+		async Task ExitBranchChild(StackData data, Type branch)
+		{
+			foreach (var exitChild in data.Children.ToArray())
+			{
+				if (exitChild.Branch != branch)
+				{
+					continue;
+				}
+				await ExitAll(exitChild, PopReason.Replace);
+			}
+		}
+
+		static void CheckBranchOccupied(StackData data, Type branch)
+		{
+			if (Branch.Get(branch)?.Occupied != BranchOccupied.Reject)
+			{
+				return;
+			}
+			foreach (var child in data.Children)
+			{
+				if (child.Branch == branch)
+				{
+					throw new BranchRejectedException(branch);
+				}
+			}
+		}
+
+		async Task<StackData> CreateAndAttach<T>(
+			ParameterHolder parameter, StackData parent, Type branch, TransitionScope scope, Func<StackData, Task> attach)
+			where T : GameState
+		{
+			GameState created = null;
+			var attached = false;
+			try
+			{
+				var state = CreateState<T>(parameter, parent, branch, out var value);
+				created = state;
+				await Decorators.DoPreInitialize(state);
+				scope.ThrowIfAborted();
+				await state.DoInitialize();
+				scope.ThrowIfAborted();
+				await Decorators.DoPostInitialize(state);
+				scope.ThrowIfAborted();
+
+				var data = new StackData();
+				data.State = state;
+				data.Parent = parent;
+				data.Branch = branch;
+				data.FactoryValue = value;
+				await attach(data);
+				attached = true;
+				return data;
+			}
+			finally
+			{
+				if (!attached)
+				{
+					SafeRelease(created?.Context);
 				}
 			}
 		}
@@ -165,64 +353,146 @@ namespace GameStateStructure
 
 		public async Task Entry<T>(ParameterHolder parameter, Config config) where T : GameState
 		{
+			++m_Generation;
 			m_AsyncLock?.SetError(new TransitionHangException());
-			await ForceRelease(m_Data);
-			if (Decorators != null)
+			try
 			{
-				await Decorators.ForceRelease();
+				ForceRelease(m_Data);
+				ForceReleaseExiting();
+				SafeRelease(Decorators);
 			}
-			Activator = config.Activator;
-			ErrorHandler = config.ErrorHandler;
-			Decorators = config.Decorator;
-			m_AsyncLock = new AsyncLock();
+			finally
+			{
+				m_Data = null;
+				m_Exiting.Clear();
+				Factory = config.Factory;
+				ErrorHandler = config.ErrorHandler;
+				Decorators = config.Decorator;
+				m_AsyncLock = new AsyncLock();
+			}
 
-			var data = new StackData();
-			var state = CreateState<T>(parameter);
-			data.State = state;
-			m_Data = new StackData();
-			m_Data.State = state;
-			await Decorators.DoPreInitialize(state);
-			await state.DoInitialize();
-			await Decorators.DoPostInitialize(state);
-			await state.DoPreEnter();
-			await Decorators.DoPreEnter(state);
-			state.DoEnter();
-			Decorators.DoPostEnter(state);
+			var scope = new TransitionScope(this);
+			GameState created = null;
+			StackData data = null;
+			var initialized = false;
+			try
+			{
+				var state = CreateState<T>(parameter, null, null, out var rootValue);
+				created = state;
+				data = new StackData();
+				data.State = state;
+				data.FactoryValue = rootValue;
+				m_Data = data;
+				await Decorators.DoPreInitialize(state);
+				scope.ThrowIfAborted();
+				await state.DoInitialize();
+				scope.ThrowIfAborted();
+				await Decorators.DoPostInitialize(state);
+				initialized = true;
+				await EnterState(state, scope);
+			}
+			finally
+			{
+				if (!initialized)
+				{
+					// 後から来た Entry に差し替えられている場合は触らない
+					if (ReferenceEquals(m_Data, data))
+					{
+						m_Data = null;
+					}
+					SafeRelease(created?.Context);
+				}
+			}
 		}
 
+		async Task EnterState(GameState state, TransitionScope scope)
+		{
+			scope.ThrowIfAborted();
+			await state.DoPreEnter();
+			scope.ThrowIfAborted();
+			await Decorators.DoPreEnter(state);
+			scope.ThrowIfAborted();
+			state.DoEnter();
+			Decorators.DoPostEnter(state);
+			Notify(new StateEvent(StateEventType.Enter, state));
+		}
+
+		void ReportError(Exception e, GameState state = null)
+		{
+			Notify(new StateEvent(StateEventType.Error, state, default, e));
+			var handle = ErrorHandler;
+			if (handle != null)
+			{
+				handle.Handle(e);
+			}
+			else
+			{
+				Debug.LogException(e);
+			}
+		}
+
+#if GSS_UNITASK && !GSS_DISABLE_UNITASK
+		internal void Handle(Func<Cysharp.Threading.Tasks.UniTask> task, bool ignoreCancel = false)
+		{
+			var scope = new TransitionScope(this);
+			Run().Forget();
+
+			async Cysharp.Threading.Tasks.UniTaskVoid Run()
+			{
+				try
+				{
+					await task();
+				}
+				catch (Exception e)
+				{
+					HandleError(scope, e, ignoreCancel);
+				}
+			}
+		}
+#else
 		internal async void Handle(Func<Task> task, bool ignoreCancel = false)
 		{
+			var scope = new TransitionScope(this);
 			try
 			{
 				await task();
 			}
 			catch (Exception e)
 			{
-				if (ignoreCancel && e is OperationCanceledException)
-				{
-					Log.Debug("OperationCanceledException {0}", e);
-					return;
-				}
-				if (m_Destroyed)
-				{
-					Log.Warning("Object Destroyed {0}", e);
-					return;
-				}
-				var handle = ErrorHandler;
-				if (handle != null)
-				{
-					handle.Handle(e);
-				}
-				else
-				{
-					Debug.LogException(e);
-				}
-				m_AsyncLock?.SetError(new(e));
+				HandleError(scope, e, ignoreCancel);
 			}
 		}
+#endif
 
-		public void GoTo<T>(GameState current, ParameterHolder parameter) where T : GameState, new()
+		void HandleError(TransitionScope scope, Exception e, bool ignoreCancel)
 		{
+			if (e is TransitionAbortedException)
+			{
+				Log.Debug("TransitionAborted {0}", e);
+				return;
+			}
+			if (scope.IsStale)
+			{
+				Log.Warning("stale transition failed after Entry {0}", e);
+				return;
+			}
+			if (ignoreCancel && e is OperationCanceledException)
+			{
+				Log.Debug("OperationCanceledException {0}", e);
+				return;
+			}
+			if (m_Destroyed)
+			{
+				Log.Warning("Object Destroyed {0}", e);
+				return;
+			}
+			ReportError(e);
+			scope.Lock?.SetError(new(e));
+		}
+
+		public void GoTo<T>(GameState current, ParameterHolder parameter) where T : GameState
+		{
+			var scope = new TransitionScope(this);
 			Handle(async () =>
 			{
 				using var _ = await m_AsyncLock.Enter(m_DefaultCancellationToken);
@@ -234,36 +504,28 @@ namespace GameStateStructure
 					return;
 				}
 
-				var state = CreateState<T>(parameter);
-				await Decorators.DoPreInitialize(state);
-				await state.DoInitialize();
-				await Decorators.DoPostInitialize(state);
 				var parent = data.Parent;
-				await ExitAll(data);
-				var newData = new StackData();
-				newData.State = state;
-				newData.Parent = parent;
-				if (parent != null)
+				var newData = await CreateAndAttach<T>(parameter, parent, data.Branch, scope, async attaching =>
 				{
-					parent.Children.Add(newData);
-				}
-				else
-				{
-					m_Data = newData;
-				}
-				await Decorators.DoPreExit(current);
-				await current.DoExit();
-				await Decorators.DoPostExit(current);
-				await state.DoPreEnter();
-				await Decorators.DoPreEnter(state);
-				state.DoEnter();
-				Decorators.DoPostEnter(state);
+					await ExitAll(data, PopReason.GoTo);
+					scope.ThrowIfAborted();
+					if (parent != null)
+					{
+						parent.Children.Add(attaching);
+					}
+					else
+					{
+						m_Data = attaching;
+					}
+				});
+				await EnterState(newData.State, scope);
 			});
 		}
 
-		public void Push<T>(GameState current, ParameterHolder parameter) where T : GameState, new()
+		public void Push<T>(GameState current, ParameterHolder parameter) where T : GameState
 		{
 			Log.Debug("{0}.Push<{1}>", current, typeof(T));
+			var scope = new TransitionScope(this);
 			Handle(async () =>
 			{
 				using var _ = await m_AsyncLock.Enter(m_DefaultCancellationToken);
@@ -272,19 +534,13 @@ namespace GameStateStructure
 				{
 					return;
 				}
-				var state = CreateState<T>(parameter);
-				await Decorators.DoPreInitialize(state);
-				await state.DoInitialize();
-				await Decorators.DoPostInitialize(state);
-				await ExitParallelChild(data, state);
-				var child = new StackData();
-				child.State = state;
-				child.Parent = data;
-				data.Children.Add(child);
-				await state.DoPreEnter();
-				await Decorators.DoPreEnter(state);
-				state.DoEnter();
-				Decorators.DoPostEnter(state);
+				var child = await CreateAndAttach<T>(parameter, data, null, scope, async attaching =>
+				{
+					await ExitBranchChild(data, null);
+					scope.ThrowIfAborted();
+					data.Children.Add(attaching);
+				});
+				await EnterState(child.State, scope);
 			});
 		}
 
@@ -303,12 +559,13 @@ namespace GameStateStructure
 				{
 					return;
 				}
-				await ExitAll(data);
+				await ExitAll(data, PopReason.Pop);
 			});
 		}
 
-		public async Task<TResult> RunProcess<TGameState, TResult>(GameState current, ParameterHolder parameter, CancellationToken token) where TGameState : GameState, IProcess<TResult>
+		public async Task<TResult> RunProcess<TGameState, TResult>(GameState current, ParameterHolder parameter, Type branch, CancellationToken token) where TGameState : GameState, IProcess<TResult>
 		{
+			var scope = new TransitionScope(this);
 			using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, m_DefaultCancellationToken);
 			token = linkedCts.Token;
 
@@ -317,7 +574,7 @@ namespace GameStateStructure
 
 			using (await m_AsyncLock.Enter(token))
 			{
-				(child, state) = await ProcessPush<TGameState>(current, parameter, token);
+				(child, state) = await ProcessPush<TGameState>(current, parameter, branch, token, scope);
 			}
 
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, child.CancellationTokenSource.Token);
@@ -331,22 +588,25 @@ namespace GameStateStructure
 			}
 			catch
 			{
+				scope.ThrowIfAborted();
 				using (await m_AsyncLock.Enter(m_DefaultCancellationToken))
 				{
-					await HandleExitAll(child, token);
+					await HandleExitAll(child, token, scope);
 				}
 				throw;
 			}
 			Log.Debug("{0}.Process<{1}, {2}> Run Result {3}", current, typeof(TGameState), typeof(TResult), result);
+			scope.ThrowIfAborted();
 			using (await m_AsyncLock.Enter(m_DefaultCancellationToken))
 			{
-				await HandleExitAll(child, token);
+				await HandleExitAll(child, token, scope);
 			}
 			return result;
 		}
 
-		public async Task RunProcess<TGameState>(GameState current, ParameterHolder parameter, CancellationToken token) where TGameState : GameState, IProcess
+		public async Task RunProcess<TGameState>(GameState current, ParameterHolder parameter, Type branch, CancellationToken token) where TGameState : GameState, IProcess
 		{
+			var scope = new TransitionScope(this);
 			using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(token, m_DefaultCancellationToken);
 			token = linkedCts.Token;
 
@@ -354,7 +614,7 @@ namespace GameStateStructure
 			TGameState state;
 			using (await m_AsyncLock.Enter(token))
 			{
-				(child, state) = await ProcessPush<TGameState>(current, parameter, token);
+				(child, state) = await ProcessPush<TGameState>(current, parameter, branch, token, scope);
 			}
 
 			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, child.CancellationTokenSource.Token);
@@ -367,24 +627,26 @@ namespace GameStateStructure
 			}
 			catch
 			{
+				scope.ThrowIfAborted();
 				using (await m_AsyncLock.Enter(m_DefaultCancellationToken))
 				{
-					await HandleExitAll(child, token);
+					await HandleExitAll(child, token, scope);
 				}
 				throw;
 			}
 			Log.Debug("{0}.Process<{1}> Run Result", current, typeof(TGameState));
+			scope.ThrowIfAborted();
 			using (await m_AsyncLock.Enter(m_DefaultCancellationToken))
 			{
-				await HandleExitAll(child, token);
+				await HandleExitAll(child, token, scope);
 			}
 		}
 
-		async Task HandleExitAll(StackData data, CancellationToken token)
+		async Task HandleExitAll(StackData data, CancellationToken token, TransitionScope scope)
 		{
 			try
 			{
-				await ExitAll(data);
+				await ExitAll(data, PopReason.ProcessEnd);
 			}
 			catch (Exception e)
 			{
@@ -394,58 +656,50 @@ namespace GameStateStructure
 					return;
 				}
 
-				var handle = ErrorHandler;
-				if (handle != null)
+				if (scope.IsStale)
 				{
-					handle.Handle(e);
+					Log.Warning("stale exit failed after Entry {0}", e);
+					return;
 				}
-				else
-				{
-					Debug.LogException(e);
-				}
-				m_AsyncLock?.SetError(new(e));
+				ReportError(e);
+				scope.Lock?.SetError(new(e));
 			}
 		}
 
-		async Task<(StackData, TGameState)> ProcessPush<TGameState>(GameState current, ParameterHolder parameter, CancellationToken token) where TGameState : GameState
+		async Task<(StackData, TGameState)> ProcessPush<TGameState>(GameState current, ParameterHolder parameter, Type branch, CancellationToken token, TransitionScope scope) where TGameState : GameState
 		{
 			var data = FindStackData(current);
 			if (data == null)
 			{
 				throw new InvalidOperationException("not current state " + current);
 			}
-			var state = CreateState<TGameState>(parameter);
+			CheckBranchOccupied(data, branch);
 			StackData child;
 			try
 			{
-				await Decorators.DoPreInitialize(state);
-				await state.DoInitialize();
-				await Decorators.DoPostInitialize(state);
-				await ExitParallelChild(data, state);
-				child = new StackData();
-				child.State = state;
-				child.Parent = data;
-				data.Children.Add(child);
-				await state.DoPreEnter();
-				await Decorators.DoPreEnter(state);
-				state.DoEnter();
-				Decorators.DoPostEnter(state);
+				child = await CreateAndAttach<TGameState>(parameter, data, branch, scope, async attaching =>
+				{
+					await ExitBranchChild(data, branch);
+					scope.ThrowIfAborted();
+					data.Children.Add(attaching);
+				});
+				await EnterState(child.State, scope);
 			}
 			catch (Exception e)
 			{
-				var handle = ErrorHandler;
-				if (handle != null)
+				if (e is TransitionAbortedException)
 				{
-					handle.Handle(e);
+					throw;
 				}
-				else
+				if (scope.IsStale)
 				{
-					Debug.LogException(e);
+					throw new TransitionAbortedException();
 				}
-				m_AsyncLock?.SetError(new(e));
+				ReportError(e);
+				scope.Lock?.SetError(new(e));
 				throw;
 			}
-			return (child, state);
+			return (child, (TGameState)child.State);
 		}
 
 		void Update()

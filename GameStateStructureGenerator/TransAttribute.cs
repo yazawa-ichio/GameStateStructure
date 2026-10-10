@@ -42,6 +42,9 @@ namespace GameStateStructure.Generator
 
 		public string Name { get; private set; }
 
+		/// <summary>Push の Branch に指定された型。未指定なら null。</summary>
+		public ITypeSymbol Branch { get; private set; }
+
 		public TransAttribute(AttributeData data, ChangeType type)
 		{
 			m_Data = data;
@@ -57,6 +60,9 @@ namespace GameStateStructure.Generator
 				{
 					case "Name":
 						Name = arg.Value.Value as string;
+						break;
+					case "Branch":
+						Branch = arg.Value.Value as ITypeSymbol;
 						break;
 				}
 			}

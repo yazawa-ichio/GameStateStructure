@@ -81,9 +81,9 @@ namespace GameStateStructure.Tests
 				Pop();
 			}
 
-			protected override void OnPopChild(GameState state)
+			protected override void OnPopChild(GameState state, PopReason reason)
 			{
-				Debug.Log("OnPopChild " + state);
+				Debug.Log($"OnPopChild {state} {reason}");
 			}
 
 			[SubscribeEvent]
@@ -198,7 +198,7 @@ namespace GameStateStructure.Tests
 			using (var context = new TestContext())
 			{
 				await context.Manager.Entry<Root>();
-				context.Manager.ErrorHandler = new TestErrorHandler();
+				context.Manager.ErrorHandler = context.ErrorHandler;
 				var root = context.Manager.FindAllStates<Root>().FirstOrDefault();
 				root.PushA();
 				var mainA = context.Manager.FindAllStates<MainA>().FirstOrDefault();
@@ -216,17 +216,17 @@ namespace GameStateStructure.Tests
 				}
 				Assert.Null(context.Manager.FindAllStates<Process>().FirstOrDefault());
 				{
-					TestErrorHandler.Error = null;
+					context.ErrorHandler.Clear();
 					mainA.InitializeError(false);
 					await Task.Delay(1000);
-					Assert.IsNull(TestErrorHandler.Error);
+					Assert.IsNull(context.LastError);
 					Assert.Null(context.Manager.FindAllStates<InitializeErrorTest>().FirstOrDefault());
 				}
 				{
-					TestErrorHandler.Error = null;
+					context.ErrorHandler.Clear();
 					mainA.InitializeError(true);
 					await Task.Delay(1000);
-					Assert.IsNotNull(TestErrorHandler.Error);
+					Assert.IsNotNull(context.LastError);
 					Assert.Null(context.Manager.FindAllStates<InitializeErrorTest>().FirstOrDefault());
 				}
 
@@ -239,13 +239,13 @@ namespace GameStateStructure.Tests
 				{
 					// ハングしたエラーが発生する
 					Assert.AreEqual("transition hang : Error", err.Message);
-					Assert.AreEqual(TestErrorHandler.Error, err.InnerException);
+					Assert.AreEqual(context.LastError, err.InnerException);
 				}
 
 				{
 					// 再エントリーすればエラーが解消する
 					await context.Manager.Entry<Root>();
-					context.Manager.ErrorHandler = new TestErrorHandler();
+					context.Manager.ErrorHandler = context.ErrorHandler;
 					root = context.Manager.FindAllStates<Root>().FirstOrDefault();
 					root.PushA();
 					mainA = context.Manager.FindAllStates<MainA>().FirstOrDefault();

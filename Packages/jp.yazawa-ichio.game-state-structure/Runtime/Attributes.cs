@@ -3,7 +3,7 @@
 namespace GameStateStructure
 {
 	[AttributeUsage(AttributeTargets.Property)]
-	public sealed class ArgAttribute : Attribute
+	public sealed class ArgAttribute : UnityEngine.Scripting.PreserveAttribute
 	{
 		public bool Option { get; set; }
 	}
@@ -35,6 +35,9 @@ namespace GameStateStructure
 
 		public string Name { get; private set; }
 
+		/// <summary>子を入れる車線。未指定なら主軸。指定できるのは IProcess を実装した遷移先だけ。</summary>
+		public Type Branch { get; set; }
+
 		public PushAttribute(Type type)
 		{
 			Type = type;
@@ -53,6 +56,12 @@ namespace GameStateStructure
 		public bool Broadcast { get; set; } = false;
 
 		public bool ChildOnly { get; set; } = true;
+
+		/// <summary>true にすると発行関数を生成しない。</summary>
+		public bool Internal { get; set; } = false;
+
+		/// <summary>このイベントによる遷移先。遷移図が参照するだけで実行時の挙動には影響しない。</summary>
+		public Type Transition { get; set; }
 	}
 
 	[AttributeUsage(AttributeTargets.Class, AllowMultiple = true)]
@@ -66,11 +75,6 @@ namespace GameStateStructure
 		{
 			Type = type;
 		}
-	}
-
-	[AttributeUsage(AttributeTargets.Class)]
-	public sealed class IgnoreParallelPopAttribute : Attribute
-	{
 	}
 
 }
