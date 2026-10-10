@@ -1,9 +1,8 @@
 {
   "name": "jp.yazawa-ichio.game-state-structure",
   "displayName": "GameStateStructure",
-  "version": "0.3.0",
-  "unity": "2020.3",
+  "version": "0.4.0",
+  "unity": "6000.3",
   "description": "Unity GameStateStructure Package",
-  "license": "NYSL",
-  "dependencies": {}
+  "license": "NYSL"
 }

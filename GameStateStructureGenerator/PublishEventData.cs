@@ -47,6 +47,9 @@ namespace GameStateStructure.Generator
 
 		public List<EventMethod> Events = new();
 
+		/// <summary>Internal 指定で生成をスキップした購読関数があったか。</summary>
+		public bool HasInternalOnly { get; private set; }
+
 		public PublishEventData(AttributeData data)
 		{
 			Type = data.ConstructorArguments[0].Value as ITypeSymbol;
@@ -90,6 +93,11 @@ namespace GameStateStructure.Generator
 		{
 			if (member is IMethodSymbol method && member.DeclaredAccessibility == Accessibility.Public)
 			{
+				if (subscribe.Internal)
+				{
+					HasInternalOnly = true;
+					return;
+				}
 				var data = new EventMethod
 				{
 					Symbol = method,

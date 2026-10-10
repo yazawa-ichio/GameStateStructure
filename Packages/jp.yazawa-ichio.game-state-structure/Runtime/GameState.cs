@@ -30,17 +30,13 @@ namespace GameStateStructure
 
 		public GameStateManager Manager { get; internal set; }
 
-		protected internal DecoratorCollection Decorators { get; private set; } = new DecoratorCollection();
+		/// <summary>自身より下のステートにだけ効く Decorator。</summary>
+		protected internal DecoratorCollection DescendantDecorators { get; private set; } = new DecoratorCollection();
 
 		internal void Setup(GameStateManager manager, Context context)
 		{
 			Manager = manager;
 			Context = context;
-		}
-
-		protected internal virtual bool IsAllowParallelChild(GameState state)
-		{
-			return false;
 		}
 
 		internal void DoUpdate()
@@ -89,8 +85,18 @@ namespace GameStateStructure
 			m_Active = false;
 			Log.Debug("DoExit {0}", GetType());
 			Log.Trace("PreExit {0}", GetType());
+			if (Context.ForceReleased)
+			{
+				Log.Debug("Exit skipped (force released) {0}", GetType());
+				return;
+			}
 			await OnPreExit();
 			await Context.DisposeAsync();
+			if (Context.ForceReleased)
+			{
+				Log.Debug("Exit skipped (force released) {0}", GetType());
+				return;
+			}
 			Log.Trace("Exit {0}", GetType());
 			await OnExit();
 		}
@@ -105,17 +111,25 @@ namespace GameStateStructure
 			return Task.CompletedTask;
 		}
 
-		protected internal virtual void OnPopChild(GameState state) { }
+		/// <summary>子ステートが破棄されたときに呼ばれる。</summary>
+		protected internal virtual void OnPopChild(GameState state, PopReason reason) { }
 
 		protected void Pop()
 		{
 			Manager.Pop(this);
 		}
 
+#if GSS_UNITASK && !GSS_DISABLE_UNITASK
+		protected void Handle(Func<Cysharp.Threading.Tasks.UniTask> task, bool ignoreCancel = true)
+		{
+			Manager.Handle(task, ignoreCancel);
+		}
+#else
 		protected void Handle(Func<Task> task, bool ignoreCancel = true)
 		{
 			Manager.Handle(task, ignoreCancel);
 		}
+#endif
 
 		protected GameState GetParentState()
 		{

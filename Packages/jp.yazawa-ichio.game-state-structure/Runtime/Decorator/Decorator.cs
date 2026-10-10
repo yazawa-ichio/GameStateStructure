@@ -4,7 +4,7 @@ using System.Threading.Tasks;
 namespace GameStateStructure
 {
 
-	public interface IDecorator : IDisposable, IAsyncDisposable
+	public interface IDecorator
 	{
 		int Priority { get; }
 		Task DoPreInitialize(GameState state);
@@ -13,6 +13,8 @@ namespace GameStateStructure
 		void DoPostEnter(GameState state);
 		Task DoPreExit(GameState state);
 		Task DoPostExit(GameState state);
+
+		void ForceRelease();
 	}
 
 	public abstract class Decorator<TMaker> : IDecorator where TMaker : class
@@ -133,20 +135,10 @@ namespace GameStateStructure
 			return Task.CompletedTask;
 		}
 
-		async ValueTask IAsyncDisposable.DisposeAsync()
-		{
-			await DisposeAsync();
-			Dispose();
-		}
+		void IDecorator.ForceRelease() => OnForceRelease();
 
-		protected virtual Task DisposeAsync()
-		{
-			return Task.CompletedTask;
-		}
-
-		void IDisposable.Dispose() { }
-
-		protected virtual void Dispose()
+		/// <summary>解放時に呼ばれる。Entry の再入もこの経路を使うため同期で完了させること。</summary>
+		protected virtual void OnForceRelease()
 		{
 		}
 	}

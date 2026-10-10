@@ -17,6 +17,13 @@ namespace GameStateStructure
 			m_List.Remove(manager);
 		}
 
+		public void GetManagers(List<GameStateManager> list)
+		{
+			list.AddRange(m_List);
+		}
+
+		public int Count => m_List.Count;
+
 		public IEnumerable<T> GetAllStates<T>() where T : class
 		{
 			using var _ = ListPool<T>.Get(out var list);

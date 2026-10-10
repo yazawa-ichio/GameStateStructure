@@ -8,24 +8,22 @@ namespace GameStateStructure.Tests
 {
 	partial class TransitionTest
 	{
-		[Push(typeof(TestProcess), "")]
+		// 主軸の Push で畳まれずに走り続けることを見るため、車線に入れる
+		[Push(typeof(TestProcess), "", Branch = typeof(TestBranch))]
+		// 主軸に積まれる Process。兄弟を畳むことの検証に使う
+		[Push(typeof(MainProcess), "MainProc")]
 		[Push(typeof(MainAA), "AA")]
 		[Push(typeof(MainAB), "AB")]
 		[GoTo(typeof(MainB))]
 		partial class MainA : GameState
 		{
-			public bool TestIsAllowParallelChild = true;
-
-			protected override bool IsAllowParallelChild(GameState state)
-			{
-				return TestIsAllowParallelChild;
-			}
-
 			public void DoPushA() => PushAA<MainAA>();
 
 			public void DoPushB() => PushAB<MainAB>();
 
 			public Task DoPushProcess(Func<CancellationToken, Task> task) => Run<TestProcess>(task);
+
+			public Task DoPushMainProcess() => RunMainProc<MainProcess>();
 
 			public void DoGoToB() => GoToMainB<MainB>();
 		}
@@ -41,6 +39,11 @@ namespace GameStateStructure.Tests
 				await Task(token);
 				Debug.Log("Run:End");
 			}
+		}
+
+		class MainProcess : GameState, IProcess
+		{
+			public Task Run(CancellationToken token) => System.Threading.Tasks.Task.CompletedTask;
 		}
 
 		[GoTo(typeof(MainAB))]
@@ -96,7 +99,9 @@ namespace GameStateStructure.Tests
 			var mainB = context.Manager.FindState<MainB>();
 			Assert.IsNotNull(mainB);
 			Assert.IsTrue(mainB.Active);
-			Assert.ThrowsAsync<InvalidOperationException>(async () => { await mainA.DoPushProcess((token) => Task.CompletedTask); });
+			// Assert.ThrowsAsync は IL2CPP + ストリッピングで NUnit 内部が壊れるため使わない
+			var notCurrent = await TestAsync.Catch(() => mainA.DoPushProcess((token) => Task.CompletedTask));
+			Assert.IsInstanceOf<InvalidOperationException>(notCurrent);
 
 			mainB.DoGoToA();
 			Assert.IsFalse(mainB.Active);
@@ -163,7 +168,8 @@ namespace GameStateStructure.Tests
 
 				Assert.IsTrue(cancellationToken.IsCancellationRequested);
 				Assert.IsNull(context.Manager.FindState<TestProcess>());
-				Assert.ThrowsAsync<TaskCanceledException>(async () => { await process; });
+				var cancelled = await TestAsync.Catch(() => process);
+				Assert.IsInstanceOf<OperationCanceledException>(cancelled);
 				Assert.AreEqual(aaCount + 1, MainAA.Count);
 				Assert.AreEqual(abCount + 1, MainAB.Count);
 			}
@@ -183,13 +189,12 @@ namespace GameStateStructure.Tests
 		}
 
 		[Test]
-		public async Task AllowParallelChildTest()
+		public async Task MainAxisIsExclusiveTest()
 		{
 			using var context = new TestContext();
 			await context.Manager.Entry<MainA>();
 
 			var mainA = context.Manager.FindState<MainA>();
-			mainA.TestIsAllowParallelChild = false;
 			Assert.IsNotNull(mainA);
 			mainA.DoPushA();
 			var aa = context.Manager.FindState<MainAA>();
@@ -202,7 +207,8 @@ namespace GameStateStructure.Tests
 			Assert.IsNotNull(ab);
 			Assert.IsFalse(ab.Context.DisposeCancellationToken.IsCancellationRequested);
 
-			await mainA.DoPushProcess((token) => Task.CompletedTask);
+			// 主軸に積まれる Process は、兄弟と同じ枠なので既存の子を畳む
+			await mainA.DoPushMainProcess();
 
 			Assert.IsTrue(ab.Context.DisposeCancellationToken.IsCancellationRequested);
 		}

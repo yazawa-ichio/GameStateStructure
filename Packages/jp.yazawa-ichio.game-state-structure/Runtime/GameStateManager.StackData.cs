@@ -14,6 +14,14 @@ namespace GameStateStructure
 
 			public GameState State;
 
+			/// <summary>入っている車線。null は主軸。</summary>
+			public System.Type Branch;
+
+			/// <summary>IStateFactory が生成時に返した値。ライブラリは中身を解釈しない。</summary>
+			public System.IDisposable FactoryValue;
+
+			public GameState Exiting;
+
 			public List<StackData> Children = new();
 
 			public void Update()

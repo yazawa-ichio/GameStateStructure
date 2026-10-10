@@ -21,6 +21,9 @@ namespace GameStateStructure.Generator
 
 		public bool ChildOnly { get; private set; } = true;
 
+		/// <summary>true なら発行関数を生成しない。</summary>
+		public bool Internal { get; private set; } = false;
+
 		public SubscribeEventAttribute(AttributeData data)
 		{
 			m_Data = data;
@@ -34,6 +37,9 @@ namespace GameStateStructure.Generator
 						break;
 					case "ChildOnly":
 						ChildOnly = (bool)kvp.Value.Value;
+						break;
+					case "Internal":
+						Internal = (bool)kvp.Value.Value;
 						break;
 				}
 			}

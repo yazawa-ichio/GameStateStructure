@@ -9,8 +9,22 @@ namespace GameStateStructure.Generator
 	{
 		public List<TypeDeclarationSyntax> List { get; } = new();
 
+		/// <summary>[SubscribeEvent] が付いたメソッド。クラス側の属性とは独立に収集する。</summary>
+		public List<MethodDeclarationSyntax> SubscribeEventMethods { get; } = new();
+
 		public void OnVisitSyntaxNode(SyntaxNode syntaxNode)
 		{
+			if (syntaxNode is MethodDeclarationSyntax methodDeclarationSyntax)
+			{
+				var isSubscribe = methodDeclarationSyntax.AttributeLists
+					.SelectMany(attributeList => attributeList.Attributes)
+					.Any(x => IsSubscribeEvent(x));
+				if (isSubscribe)
+				{
+					SubscribeEventMethods.Add(methodDeclarationSyntax);
+				}
+			}
+
 			if (syntaxNode is ClassDeclarationSyntax classDeclarationSyntax)
 			{
 				var isTarget = classDeclarationSyntax.AttributeLists
@@ -19,6 +33,20 @@ namespace GameStateStructure.Generator
 				if (isTarget)
 				{
 					List.Add(classDeclarationSyntax);
+				}
+			}
+
+			bool IsSubscribeEvent(AttributeSyntax attribute)
+			{
+				switch (attribute.Name.ToFullString().Trim())
+				{
+					case "GameStateStructure.SubscribeEvent":
+					case "SubscribeEvent":
+					case "GameStateStructure.SubscribeEventAttribute":
+					case "SubscribeEventAttribute":
+						return true;
+					default:
+						return false;
 				}
 			}
 

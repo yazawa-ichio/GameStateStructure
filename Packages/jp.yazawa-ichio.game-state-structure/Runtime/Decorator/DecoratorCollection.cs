@@ -27,21 +27,24 @@ namespace GameStateStructure
 			}
 			foreach (var remove in removes)
 			{
-				remove.Dispose();
+				remove.ForceRelease();
 			}
 		}
 
 		public void Unregister(IDecorator decorator)
 		{
 			m_List.Remove(decorator);
-			decorator.Dispose();
+			decorator.ForceRelease();
 		}
 
-		public async Task ForceRelease()
+		public void ForceRelease()
 		{
 			var list = m_List.ToArray();
 			m_List.Clear();
-			await Task.WhenAll(list.Select(x => x.DisposeAsync().AsTask()));
+			foreach (var decorator in list)
+			{
+				decorator.ForceRelease();
+			}
 		}
 
 		IEnumerable<IDecorator> GetDecorators(GameState state)
@@ -52,7 +55,7 @@ namespace GameStateStructure
 			}
 			foreach (var parent in state.Manager.FindParents<GameState>(state))
 			{
-				foreach (var decorator in parent.Decorators.m_List)
+				foreach (var decorator in parent.DescendantDecorators.m_List)
 				{
 					yield return decorator;
 				}
