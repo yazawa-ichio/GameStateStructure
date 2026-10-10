@@ -1,6 +1,7 @@
 Temp
 Library
 *.sln
+*.slnx
 *.csproj
 *.vs
 .vsconfig
@@ -9,3 +10,9 @@ Logs
 Build
 CodeCoverage
 UserSettings
+test-results*.xml
+.claude
+.agents
+skills-lock.json
+Assets/InitTestScene*.unity
+Assets/InitTestScene*.unity.meta
