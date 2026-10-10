@@ -571,19 +571,23 @@ namespace GameStateStructure
 
 			StackData child;
 			TGameState state;
+			CancellationToken childToken;
 
 			using (await m_AsyncLock.Enter(token))
 			{
 				(child, state) = await ProcessPush<TGameState>(current, parameter, branch, token, scope);
+				childToken = child.CancellationTokenSource?.Token ?? new CancellationToken(true);
 			}
 
-			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, child.CancellationTokenSource.Token);
+			// ロックを渡した時点で、待っていた遷移が子を畳んでいることがある
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, childToken);
 			token = cts.Token;
 
 			Log.Debug("{0}.Process<{1}, {2}> Run Start", current, typeof(TGameState), typeof(TResult));
 			TResult result = default;
 			try
 			{
+				token.ThrowIfCancellationRequested();
 				result = await state.Run(token);
 			}
 			catch
@@ -612,17 +616,21 @@ namespace GameStateStructure
 
 			StackData child;
 			TGameState state;
+			CancellationToken childToken;
 			using (await m_AsyncLock.Enter(token))
 			{
 				(child, state) = await ProcessPush<TGameState>(current, parameter, branch, token, scope);
+				childToken = child.CancellationTokenSource?.Token ?? new CancellationToken(true);
 			}
 
-			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, child.CancellationTokenSource.Token);
+			// ロックを渡した時点で、待っていた遷移が子を畳んでいることがある
+			using var cts = CancellationTokenSource.CreateLinkedTokenSource(token, childToken);
 			token = cts.Token;
 
 			Log.Debug("{0}.Process<{1}> Run Start", current, typeof(TGameState));
 			try
 			{
+				token.ThrowIfCancellationRequested();
 				await state.Run(token);
 			}
 			catch

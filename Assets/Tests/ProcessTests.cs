@@ -41,13 +41,20 @@ namespace GameStateStructure.Tests
 
 		/// <summary>子に Process を走らせる中間のステート。</summary>
 		[Push(typeof(GatedProcess), "Gated")]
+		[Push(typeof(InitGatedProcess), "InitGated")]
 		partial class Middle : GameState
 		{
 			public Task<string> Running { get; private set; }
 
+			public Task RunningInitGated { get; private set; }
+
 			public void DoRunGated(TaskCompletionSource<string> gate)
 				=> Running = RunGated<GatedProcess>(gate);
 
+			public void DoRunInitGated(InitGate gate)
+				=> RunningInitGated = RunInitGated<InitGatedProcess>(gate);
+
+			public void DoPop() => Pop();
 		}
 
 		class Sibling : GameState
@@ -74,6 +81,28 @@ namespace GameStateStructure.Tests
 			{
 				ct.Register(() => Gate.TrySetCanceled(ct));
 				return Gate.Task;
+			}
+		}
+
+		class InitGate
+		{
+			public TaskCompletionSource<bool> Initialize { get; } =
+				new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+			public bool Ran { get; set; }
+		}
+
+		partial class InitGatedProcess : GameState, IProcess
+		{
+			[Arg]
+			public InitGate Gate { get; set; }
+
+			protected override Task OnInitialize() => Gate.Initialize.Task;
+
+			public Task Run(CancellationToken ct)
+			{
+				Gate.Ran = true;
+				return Task.CompletedTask;
 			}
 		}
 
@@ -223,6 +252,34 @@ namespace GameStateStructure.Tests
 			host.DoPushMiddle();
 			await context.WaitTransition();
 			Assert.IsNotNull(context.Manager.FindState<Middle>(), "以後の遷移も通る");
+		}
+
+		[Test]
+		public async Task ProcessExitedRightAfterItsPushIsCancelled()
+		{
+			using var context = new TestContext();
+			await context.Entry<Host>();
+			var host = context.Manager.FindState<Host>();
+
+			host.DoPushMiddle();
+			await context.WaitTransition();
+			var middle = context.Manager.FindState<Middle>();
+
+			var gate = new InitGate();
+			middle.DoRunInitGated(gate);
+			await context.Tick();
+
+			// 子の初期化中に親の Pop を積む。ロックの受け渡しで Pop が先に子を畳む
+			middle.DoPop();
+			await context.Tick();
+			gate.Initialize.SetResult(true);
+
+			var error = await TestAsync.Catch(() => middle.RunningInitGated);
+			Assert.IsInstanceOf<OperationCanceledException>(error, "取り消しとして返る: " + error);
+			await context.WaitTransition();
+			Assert.IsNull(context.Manager.FindState<Middle>(), "Pop は通る");
+			Assert.IsFalse(gate.Ran, "畳まれた Process の Run は呼ばない");
+			Assert.IsNull(context.LastError, "取り消しは異常ではない: " + context.LastError);
 		}
 
 	}
